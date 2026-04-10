@@ -10,17 +10,31 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { getQueueToken } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import * as express from 'express';
 
 async function bootstrap() {
 
-  const app = await NestFactory.create(AppModule);
+ const app = await NestFactory.create(AppModule, {
+    bodyParser: false,
+  });
 
-  app.setGlobalPrefix('api/v1'); // 🔥 IMPORTANT
+  app.use(
+    '/payments/webhook',
+    express.raw({ type: 'application/json' }),
+  );
+
+  app.use(express.json());
+
+  app.setGlobalPrefix('api/v1');
+
+  
  
   app.useGlobalInterceptors(new ResponseInterceptor()); 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-   const serverAdapter = new ExpressAdapter();
+  
+
+  const serverAdapter = new ExpressAdapter();
   serverAdapter.setBasePath('/admin/queues');
 
   // 🔥 get queue instance

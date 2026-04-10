@@ -1,3 +1,5 @@
+import { Order } from '../../order/entities/order.entity';
+import { Cart } from '../../cart/entities/cart.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,6 +7,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  OneToOne,
+  OneToMany,
 } from 'typeorm';
 
 export enum UserRole {
@@ -37,6 +41,12 @@ export class User {
   })
   role: UserRole;
 
+  @OneToOne(() => Cart, (cart) => cart.user)
+  cart: Cart;
+
+  @OneToMany(() => Order, (order) => order.user)
+  orders: Order[];
+
   @Column({ default: true })
   isActive: boolean;
 
@@ -51,4 +61,5 @@ export class User {
 
   @Column({ type: 'timestamp', nullable: true })
   resetPasswordExpires: Date | null;
+
 }

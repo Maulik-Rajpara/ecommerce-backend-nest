@@ -7,7 +7,7 @@ import { ChangePasswordDto } from './dto/change.password.dto';
   import * as crypto from 'crypto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { EmailService } from 'src/email/email.service';
+import { EmailService } from '../email/email.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PinoLogger } from 'nestjs-pino';
@@ -21,11 +21,13 @@ export class AuthService {
   ) {}
 
   async login(loginDto: LoginDto) {
-    const { email, password } = loginDto;
+
+    try {
+     const { email, password } = loginDto;
 
     // 🔍 find user
     const user = await this.usersService.findByEmail(email);
-
+      console.log('User found:', user); // 👈 ADD THIS
     if (!user || typeof user === 'string' || !user.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -50,6 +52,11 @@ export class AuthService {
     return {
       accessToken: token,
     };
+  } catch (error) {
+    console.error(error); // 👈 ADD THIS
+    throw error;
+  }
+   
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

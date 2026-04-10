@@ -9,6 +9,12 @@ import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'crypto';
 import { EmailModule } from './email/email.module';
 import { QueueModule } from './queue/queue.module';
+import { ProductModule } from './product/product.module';
+import { CategoryModule } from './category/category.module';
+import { CartModule } from './cart/cart.module';
+import { OrderModule } from './order/order.module';
+import { PaymentModule } from './payment/payment.module';
+
 
 @Module({
   imports: [
@@ -23,7 +29,7 @@ import { QueueModule } from './queue/queue.module';
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
       autoLoadEntities: true,
-      synchronize: true, // dev only
+      synchronize: false, // dev only
     }),
 
     LoggerModule.forRoot({
@@ -67,7 +73,17 @@ import { QueueModule } from './queue/queue.module';
     
     EmailModule,
     
-    QueueModule
+    QueueModule,
+    
+    ProductModule,
+    
+    CategoryModule,
+    
+    CartModule,
+    
+    OrderModule,
+    
+    PaymentModule
   ],
   controllers: [AppController],
   providers: [AppService,],
