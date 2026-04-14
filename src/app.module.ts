@@ -14,7 +14,15 @@ import { CategoryModule } from './category/category.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
 import { PaymentModule } from './payment/payment.module';
-
+import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { AdminModule } from './admin/admin.module';
+import { RefundModule } from './refund/refund.module';
+import { WebhookModule } from './webhook/webhook.module';
+import { NotificationModule } from './notification/notification.module';
+import { EventsModule } from './common/events/events.module';
+import { EventStoreModule } from './event-store/event-store.module';
+import { EventProcessorModule } from './event-processor/event-processor.module';
 
 @Module({
   imports: [
@@ -66,6 +74,7 @@ import { PaymentModule } from './payment/payment.module';
       },
     }),
   
+    ScheduleModule.forRoot(),
 
     UsersModule,
 
@@ -83,7 +92,24 @@ import { PaymentModule } from './payment/payment.module';
     
     OrderModule,
     
-    PaymentModule
+    PaymentModule,
+
+    EventEmitterModule.forRoot(),
+
+    AdminModule,
+
+    RefundModule,
+
+    WebhookModule,
+   
+    NotificationModule,
+    
+    EventsModule,
+    
+    EventStoreModule,
+    
+    EventProcessorModule
+    
   ],
   controllers: [AppController],
   providers: [AppService,],

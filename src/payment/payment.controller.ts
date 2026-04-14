@@ -58,53 +58,55 @@ export class PaymentController {
     }
   }
 
+
+
   // ================= WEBHOOK =================
-  @Post("webhook")
-  async handleWebhook(
-    @Req() req: any,
-    @Headers("x-razorpay-signature") signature: string,
-  ) {
-    // ⚠️ IMPORTANT: req.body must be RAW (Buffer)
-    try {
+  // @Post("webhook")
+  // async handleWebhook(
+  //   @Req() req: any,
+  //   @Headers("x-razorpay-signature") signature: string,
+  // ) {
+  //   // ⚠️ IMPORTANT: req.body must be RAW (Buffer)
+  //   try {
 
-      const payload = Buffer.isBuffer(req.body)
-        ? req.body.toString()
-        : JSON.stringify(req.body);
+  //     const payload = Buffer.isBuffer(req.body)
+  //       ? req.body.toString()
+  //       : JSON.stringify(req.body);
      
-      console.log("🔍 Webhook payload:", req.body);
-      const isValid = this.paymentService.verifySignature(
-        payload,
-        signature,
-      );
-      if (!isValid && process.env.NODE_ENV === 'production') {
-        throw new BadRequestException('Invalid signature');
-      }
+  //     console.log("🔍 Webhook payload:", req.body);
+  //     const isValid = this.paymentService.verifySignature(
+  //       payload,
+  //       signature,
+  //     );
+  //     if (!isValid && process.env.NODE_ENV === 'production') {
+  //       throw new BadRequestException('Invalid signature');
+  //     }
 
      
 
-      const event = JSON.parse(payload);
+  //     const event = JSON.parse(payload);
 
-      // ✅ handle payment success
-      if (event.event === "payment.captured") {
-        const paymentEntity = event.payload.payment.entity;
+  //     // ✅ handle payment success
+  //     if (event.event === "payment.captured") {
+  //       const paymentEntity = event.payload.payment.entity;
+  //       console.log("✅ Payment captured:", paymentEntity);
+  //       await this.paymentService.markPaymentSuccess(paymentEntity,);
+  //     }
 
-        await this.paymentService.markPaymentSuccess(paymentEntity,);
-      }
+  //     // (optional) handle failure
+  //     if (event.event === "payment.failed") {
+  //       const paymentEntity = event.payload.payment.entity;
 
-      // (optional) handle failure
-      if (event.event === "payment.failed") {
-        const paymentEntity = event.payload.payment.entity;
+  //       // you can implement failure logic later
+  //        await this.paymentService.markPaymentFailed(paymentEntity);
+  //     }
 
-        // you can implement failure logic later
-         await this.paymentService.markPaymentFailed(paymentEntity);
-      }
-
-      return {
-        status: "ok",
-      };
-    } catch (err) {
-      console.error("❌ WEBHOOK ERROR:", err);
-      throw new BadRequestException("Invalid webhook");
-    }
-  }
+  //     return {
+  //       status: "ok",
+  //     };
+  //   } catch (err) {
+  //     console.error("❌ WEBHOOK ERROR:", err);
+  //     throw new BadRequestException("Invalid webhook");
+  //   }
+  // }
 }

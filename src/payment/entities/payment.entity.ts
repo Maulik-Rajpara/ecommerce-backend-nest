@@ -9,8 +9,10 @@ import {
   UpdateDateColumn,
   JoinColumn,
   Index,
+  OneToMany,
 } from 'typeorm';
 import { Order } from '../../order/entities/order.entity';
+import { Refund } from '../../refund/entities/refund.entity';
 
 export enum PaymentStatus {
   PENDING = 'PENDING',
@@ -49,6 +51,12 @@ export class Payment {
 
   @Column('decimal')
   amount: number;
+
+  @Column({ default: 0 })
+  retryCount: number; 
+
+  @OneToMany(() => Refund, (refund) => refund.payment)
+  refunds: Refund[];
 
   @CreateDateColumn()
   createdAt: Date;

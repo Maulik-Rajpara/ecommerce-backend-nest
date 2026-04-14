@@ -11,7 +11,8 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { OrderItem } from './order-item.entity';
-import { Payment } from 'src/payment/entities/payment.entity';
+import { Payment } from '../../payment/entities/payment.entity';
+import { Refund } from '../../refund/entities/refund.entity';
 
 
 export enum OrderStatus {
@@ -21,7 +22,10 @@ export enum OrderStatus {
   CANCELLED = 'CANCELLED',    
   SHIPPED = 'SHIPPED',
   DELIVERED = 'DELIVERED',
+  REFUNDED = 'REFUNDED',      // fully refunded
+  PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED', // partially refunded
 }
+
 
 @Entity('orders')
 export class Order {
@@ -68,4 +72,14 @@ export class Order {
 
   @Column({ nullable: true })
   paymentId: string;
+
+  @Column({ default: 0 })
+  retryCount: number;
+
+  @OneToMany(() => Refund, (refund) => refund.payment)
+  refunds: Refund[];
+
+  @Index()
+  @Column({ type: 'timestamp', nullable: true })
+  expiresAt: Date;
 }
