@@ -1,60 +1,50 @@
-import { Controller, Injectable, OnModuleInit } from '@nestjs/common';
-import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
-import { OrderService } from 'src/order/order.service';
-import { KafkaService } from '../kafka.service';
+import { Controller } from "@nestjs/common";
+import { EventPattern, Payload } from "@nestjs/microservices";
+import { OrderService } from "src/order/order.service";
+
+interface PaymentSuccessEvent {
+  razorpayOrderId?: string;
+  orderId?: string;
+  paymentId: string;
+}
+
+interface KafkaPayloadEnvelope {
+  value?: Buffer;
+}
 
 @Controller()
 export class PaymentConsumer {
-  constructor(private readonly orderService: OrderService) {
-      console.log('🔥 PaymentConsumer instance:', Math.random());
-  }
+  constructor(private readonly orderService: OrderService) {}
 
-  @EventPattern('payment-success')
-async handlePaymentSuccess(@Payload() message: any) {
-  console.log('📥 Kafka RAW:', message);
-  let data;
-
-  if (message?.value) {
-    // Kafka raw buffer case
-    data = JSON.parse(message.value.toString());
-  } else {
-    // Already parsed case
-    data = message;
-  }
-
-  console.log('🔥 EVENT RECEIVED:', data);
-
-  await this.orderService.handlePaymentSuccess(
-    data.orderId,
-    data.paymentId,
-  );
-}
-
-
-  @EventPattern('payment.failed')
-  async handlePaymentFailed(@Payload() message: any) {
-      let data;
-
-    if (message?.value) {
-      // Kafka raw buffer case
-      data = JSON.parse(message.value.toString());
-    } else {
-      // Already parsed case
-      data = message;
+  private parsePayload(message: unknown): PaymentSuccessEvent {
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      "value" in message &&
+      message.value instanceof Buffer
+    ) {
+      return JSON.parse(message.value.toString()) as PaymentSuccessEvent;
     }
 
-    console.log('📥 Kafka payment.failed:', data);
+    return message as PaymentSuccessEvent;
+  }
 
-    await this.orderService.handlePaymentFailed(
-       data.orderId,
-      
+  @EventPattern("payment-success")
+  async handlePaymentSuccess(@Payload() message: unknown) {
+    const data = this.parsePayload(message);
+    const razorpayOrderId = data.razorpayOrderId ?? data.orderId;
+    if (!razorpayOrderId) return;
+
+    await this.orderService.handlePaymentSuccess(
+      razorpayOrderId,
+      data.paymentId,
     );
   }
 
-  @EventPattern('payment.dlq')
-  async handleDLQ(@Payload() message: any) {
-    const data = message.value;
+  @EventPattern("payment.dlq")
+  handleDLQ(@Payload() message: KafkaPayloadEnvelope) {
+    const data = message.value?.toString();
 
-    console.error('💀 DLQ EVENT:', data);
+    console.error("💀 DLQ EVENT:", data);
   }
 }

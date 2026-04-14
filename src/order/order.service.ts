@@ -13,8 +13,6 @@ import { Queue } from "bullmq";
 import { InjectQueue } from "@nestjs/bullmq";
 
 import { validateOrderTransition } from "./state/order.state.validate";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { EVENTS } from "src/common/events/events.constants";
 
 import { UsersService } from "src/users/users.service";
 import { NotificationService } from "src/notification/notification.service";
@@ -38,8 +36,7 @@ export class OrderService {
 
     @InjectQueue("order-expiry") private orderQueue: Queue,
 
-    private eventEmitter: EventEmitter2,
-    private userService: UsersService, 
+    private userService: UsersService,
     private notificationService: NotificationService,
   ) {}
 
@@ -125,7 +122,6 @@ export class OrderService {
         { delay: 15 * 60 * 1000 },
       );
 
-     
       return {
         statusCode: 201,
         statusMessage: "Order created",
@@ -140,28 +136,27 @@ export class OrderService {
   }
 
   // ================= PAYMENT SUCCESS =================
-  async handlePaymentSuccess(orderId: string, paymentId: string) {
+  async handlePaymentSuccess(razorpayOrderId: string, paymentId: string) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
       const order = await queryRunner.manager.findOne(Order, {
-        where: { razorpayOrderId: orderId },
+        where: { razorpayOrderId },
         relations: ["items", "items.product"],
+        lock: { mode: "pessimistic_write" },
       });
 
-     
-     
-      if(!order){
-         console.log("⚠️ Order not found...");
-         return
+      if (!order) {
+        await queryRunner.rollbackTransaction();
+        return;
       }
-      
+
       if (order.paymentId) {
-          console.log("⚠️ Payment already processed, skipping...");
-          await queryRunner.commitTransaction(); // important
-          return;
+        console.log("⚠️ Payment already processed, skipping...");
+        await queryRunner.commitTransaction(); // important
+        return;
       }
 
       if (order.status === OrderStatus.PAID) {
@@ -201,17 +196,15 @@ export class OrderService {
         }
       }
 
-      
       await queryRunner.commitTransaction();
 
-      const user = await this.userService.findOne(order.userId);
+      const user = await this.userService.findBasicById(order.userId);
 
       await this.notificationService.sendOrderPaid({
-          orderId: order.id,
-          userId: order.userId,
-          email: user?.data.email,
-        });
-
+        orderId: order.id,
+        userId: order.userId,
+        email: user?.email,
+      });
     } catch (err) {
       console.error("Error in handlePaymentSuccess:", err);
       await queryRunner.rollbackTransaction();
@@ -222,9 +215,9 @@ export class OrderService {
   }
 
   // ================= PAYMENT FAILED =================
-  async handlePaymentFailed(orderId: string) {
+  async handlePaymentFailed(razorpayOrderId: string) {
     const order = await this.orderRepo.findOne({
-      where: { razorpayOrderId: orderId },
+      where: { razorpayOrderId },
     });
 
     if (!order) return;
@@ -243,12 +236,12 @@ export class OrderService {
 
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
-      const user = await this.userService.findOne(order.userId);
-      await this.notificationService.sendOrderCancelled({
-          orderId: order.id,
-          userId: order.userId,
-          email: user?.data.email,
-     });
+    const user = await this.userService.findBasicById(order.userId);
+    await this.notificationService.sendOrderCancelled({
+      orderId: order.id,
+      userId: order.userId,
+      email: user?.email,
+    });
   }
 
   // ================= EXPIRE ORDER =================
@@ -295,7 +288,7 @@ export class OrderService {
   async updateOrderState(orderId: string, nextStatus: OrderStatus) {
     const order = await this.findById(orderId);
 
-     // ✅ IDEMPOTENCY
+    // ✅ IDEMPOTENCY
     if (order.status === nextStatus) {
       console.log("⚠️ Same state, skipping");
       return order;

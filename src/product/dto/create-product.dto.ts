@@ -1,6 +1,13 @@
 // create-product.dto.ts
-import { Type } from 'class-transformer';
-import { IsString, IsNumber, IsOptional, IsPositive, IsUUID, Min } from 'class-validator';
+import { Type } from "class-transformer";
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsUUID,
+  Min,
+} from "class-validator";
 
 export class CreateProductDto {
   @IsString()
@@ -15,7 +22,6 @@ export class CreateProductDto {
   @IsPositive()
   price: number;
 
- 
   @Type(() => Number)
   @IsNumber()
   @Min(0)

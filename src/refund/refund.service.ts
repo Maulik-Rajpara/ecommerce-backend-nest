@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-} from "@nestjs/common";
+import { Injectable, BadRequestException } from "@nestjs/common";
 import Razorpay from "razorpay";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -10,9 +7,6 @@ import { Payment, PaymentStatus } from "../payment/entities/payment.entity";
 import { Order, OrderStatus } from "../order/entities/order.entity";
 import { ConfigService } from "@nestjs/config";
 import { OrderService } from "src/order/order.service";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { EVENTS } from "src/common/events/events.constants";
-import { UsersService } from "src/users/users.service";
 
 @Injectable()
 export class RefundService {
@@ -31,10 +25,6 @@ export class RefundService {
     private orderRepo: Repository<Order>,
 
     private orderService: OrderService,
-
-    private eventEmitter: EventEmitter2,
-
-    private userService: UsersService,
   ) {
     this.razorpay = new Razorpay({
       key_id: this.configService.get("RAZORPAY_KEY_ID"),
@@ -101,11 +91,11 @@ export class RefundService {
       }
 
       // 🔢 TOTAL REFUNDED CALCULATION
-      const totalRefundedResult = await this.refundRepo
+      const totalRefundedResult = (await this.refundRepo
         .createQueryBuilder("refund")
         .select("COALESCE(SUM(refund.amount), 0)", "total")
         .where("refund.paymentId = :paymentId", { paymentId: payment.id })
-        .getRawOne();
+        .getRawOne()) as { total: string | null };
 
       const totalRefunded = Number(totalRefundedResult.total);
 
@@ -158,15 +148,15 @@ export class RefundService {
       const newTotalRefunded = totalRefunded + refundAmount;
 
       if (newTotalRefunded === Number(payment.amount)) {
-          await this.orderService.updateOrderState(
-            order.id,
-            OrderStatus.REFUNDED,
-          );
-        } else {
-          await this.orderService.updateOrderState(
-            order.id,
-            OrderStatus.PARTIALLY_REFUNDED,
-         );
+        await this.orderService.updateOrderState(
+          order.id,
+          OrderStatus.REFUNDED,
+        );
+      } else {
+        await this.orderService.updateOrderState(
+          order.id,
+          OrderStatus.PARTIALLY_REFUNDED,
+        );
       }
 
       // const user = await this.userService.findOne(order.userId);
@@ -183,11 +173,10 @@ export class RefundService {
         data: refund,
       };
     } catch (error) {
-     
+      const message =
+        error instanceof Error ? error.message : "Unknown refund error";
       console.error("❌ Refund creation failed:", error);
-      throw new BadRequestException(
-        "Refund creation failed: " + error.message,
-      );
+      throw new BadRequestException("Refund creation failed: " + message);
     }
   }
 

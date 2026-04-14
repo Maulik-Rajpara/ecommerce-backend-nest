@@ -1,19 +1,24 @@
 import { Injectable } from "@nestjs/common";
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 
 @Injectable()
 export class S3Service {
- 
-    private s3 = new S3Client({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY!,
-    secretAccessKey: process.env.AWS_SECRET_KEY!,
-  },
-});
+  private s3 = new S3Client({
+    region: process.env.AWS_REGION!,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY!,
+      secretAccessKey: process.env.AWS_SECRET_KEY!,
+    },
+  });
 
-  async uploadFile(file: Express.Multer.File, folder: string = "products"): Promise<string> {
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = "products",
+  ): Promise<string> {
     const fileName = file.originalname.replace(/\s+/g, "-");
     const key = `${folder}/${Date.now()}-${fileName}`;
 
@@ -34,8 +39,8 @@ export class S3Service {
     }
   }
 
-   async deleteFile(fileUrl: string) {
-    const key = fileUrl.split('.amazonaws.com/')[1];
+  async deleteFile(fileUrl: string) {
+    const key = fileUrl.split(".amazonaws.com/")[1];
 
     await this.s3.send(
       new DeleteObjectCommand({

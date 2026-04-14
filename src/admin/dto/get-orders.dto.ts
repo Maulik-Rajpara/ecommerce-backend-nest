@@ -1,5 +1,5 @@
-import { IsOptional, IsEnum, IsNumberString } from 'class-validator';
-import { OrderStatus } from '../../order/entities/order.entity';
+import { IsOptional, IsEnum, IsNumberString } from "class-validator";
+import { OrderStatus } from "../../order/entities/order.entity";
 
 export class GetOrdersDto {
   @IsOptional()
@@ -17,9 +17,9 @@ export class GetOrdersDto {
 
   @IsOptional()
   @IsNumberString()
-  page?: string = '1';
+  page?: string = "1";
 
   @IsOptional()
   @IsNumberString()
-  limit?: string = '10';
+  limit?: string = "10";
 }

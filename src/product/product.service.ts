@@ -112,11 +112,7 @@ export class ProductService {
 
     qb.andWhere("product.isActive = true");
 
-    qb.leftJoinAndSelect(
-      "product.images",
-      "images",
-      "images.isPrimary = true",
-    );
+    qb.leftJoinAndSelect("product.images", "images", "images.isPrimary = true");
 
     qb.leftJoinAndSelect("product.category", "category");
 
@@ -190,8 +186,7 @@ export class ProductService {
         product.slug = dto.name.toLowerCase().replace(/\s+/g, "-");
       }
 
-      if (dto.description !== undefined)
-        product.description = dto.description;
+      if (dto.description !== undefined) product.description = dto.description;
 
       if (dto.price !== undefined) product.price = dto.price;
       if (dto.stock !== undefined) product.stock = dto.stock;
@@ -214,7 +209,7 @@ export class ProductService {
 
       if (deletedIds.length === 1 && typeof deletedIds[0] === "string") {
         deletedIds = deletedIds[0]
-          .replace(/[\[\]\s]/g, "")
+          .replace(/[[\]\s]/g, "")
           .split(",")
           .filter(Boolean);
       }

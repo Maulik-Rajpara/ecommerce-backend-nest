@@ -1,32 +1,36 @@
-import { Body, Controller, Patch, Post, Req, UseGuards } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { LoginDto } from './dto/login.dto';
-import { ChangePasswordDto } from './dto/change.password.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+import { Body, Controller, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { AuthService } from "./auth.service";
+import { LoginDto } from "./dto/login.dto";
+import { ChangePasswordDto } from "./dto/change.password.dto";
+import { JwtAuthGuard } from "./guards/jwt-auth.guard";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
+import type { AuthenticatedRequest } from "../common/interfaces/authenticated-request.interface";
 
-@Controller('auth')
+@Controller("auth")
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Post('login')
+  @Post("login")
   login(@Body() body: LoginDto) {
     return this.authService.login(body);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch('change-password')
-  changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
+  @Patch("change-password")
+  changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: ChangePasswordDto,
+  ) {
     return this.authService.changePassword(req.user.userId, dto);
   }
 
-  @Post('forgot-password')
+  @Post("forgot-password")
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
   }
 
-  @Post('reset-password')
+  @Post("reset-password")
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }

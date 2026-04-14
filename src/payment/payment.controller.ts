@@ -1,15 +1,8 @@
-import {
-  Controller,
-  Post,
-  Headers,
-  Req,
-  BadRequestException,
-  UseGuards,
-} from "@nestjs/common";
+import { Controller, Post, Req, UseGuards } from "@nestjs/common";
 import { PaymentService } from "./payment.service";
 import { OrderService } from "../order/order.service";
-import { AuthGuard } from "@nestjs/passport";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import type { AuthenticatedRequest } from "../common/interfaces/authenticated-request.interface";
 
 // 🔥 PROTECT ALL ROUTES
 @Controller("payments")
@@ -22,9 +15,9 @@ export class PaymentController {
   // ================= CREATE PAYMENT =================
   @UseGuards(JwtAuthGuard)
   @Post("create")
-  async createPayment(@Req() req: any) {
+  async createPayment(@Req() req: AuthenticatedRequest) {
     try {
-      const userId = req.user.id;
+      const userId = req.user.userId;
 
       // 1️⃣ create or get existing order
       const orderRes = await this.orderService.createOrder(userId);
@@ -37,6 +30,9 @@ export class PaymentController {
           statusMessage: "Payment already initiated",
           data: {
             order,
+            payment: {
+              id: order.razorpayOrderId,
+            },
           },
         };
       }
@@ -58,8 +54,6 @@ export class PaymentController {
     }
   }
 
-
-
   // ================= WEBHOOK =================
   // @Post("webhook")
   // async handleWebhook(
@@ -72,7 +66,7 @@ export class PaymentController {
   //     const payload = Buffer.isBuffer(req.body)
   //       ? req.body.toString()
   //       : JSON.stringify(req.body);
-     
+
   //     console.log("🔍 Webhook payload:", req.body);
   //     const isValid = this.paymentService.verifySignature(
   //       payload,
@@ -81,8 +75,6 @@ export class PaymentController {
   //     if (!isValid && process.env.NODE_ENV === 'production') {
   //       throw new BadRequestException('Invalid signature');
   //     }
-
-     
 
   //     const event = JSON.parse(payload);
 

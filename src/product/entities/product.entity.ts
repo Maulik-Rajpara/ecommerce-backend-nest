@@ -9,26 +9,26 @@ import {
   ManyToOne,
   Index,
   DeleteDateColumn,
-} from 'typeorm';
-import { ProductImage } from './product-image.entity';
-import { Category } from '../../category/entities/category.entity';
-import { Min } from 'class-validator';
+} from "typeorm";
+import { ProductImage } from "./product-image.entity";
+import { Category } from "../../category/entities/category.entity";
+import { Min } from "class-validator";
 
-@Entity('products')
+@Entity("products")
 export class Product {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Index()
   @Column()
   name: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   description: string;
 
   @Index()
   @Min(1)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: "decimal", precision: 10, scale: 2 })
   price: number;
 
   @Min(0)
@@ -46,7 +46,7 @@ export class Product {
   @Index()
   @ManyToOne(() => Category, (category) => category.products, {
     nullable: false,
-    onDelete: 'RESTRICT', // category delete ho to product safe rahe
+    onDelete: "RESTRICT", // category delete ho to product safe rahe
   })
   category: Category;
 

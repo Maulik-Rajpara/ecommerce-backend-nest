@@ -1,16 +1,13 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, DataSource } from "typeorm";
 
-import { Cart } from './entities/cart.entity';
-import { CartItem } from './entities/cart-item.entity';
-import { Product } from '../product/entities/product.entity';
+import { Cart } from "./entities/cart.entity";
+import { CartItem } from "./entities/cart-item.entity";
+import { Product } from "../product/entities/product.entity";
 
-import { AddToCartDto } from './dto/add-to-cart.dto';
-import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { AddToCartDto } from "./dto/add-to-cart.dto";
+import { UpdateCartItemDto } from "./dto/update-cart-item.dto";
 
 @Injectable()
 export class CartService {
@@ -42,7 +39,7 @@ export class CartService {
   async getOrCreateCart(userId: string) {
     let cart = await this.cartRepo.findOne({
       where: { user: { id: userId } },
-      relations: ['items', 'items.product'],
+      relations: ["items", "items.product"],
     });
 
     if (!cart) {
@@ -59,11 +56,11 @@ export class CartService {
   // ================= ADD TO CART =================
   async addToCart(userId: string, dto: AddToCartDto) {
     if (dto.quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
+      throw new BadRequestException("Quantity must be greater than 0");
     }
 
     if (dto.quantity > this.MAX_QUANTITY_PER_ITEM) {
-      throw new BadRequestException('Max quantity exceeded');
+      throw new BadRequestException("Max quantity exceeded");
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -74,20 +71,20 @@ export class CartService {
       // 🔒 lock product (prevent race condition)
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: dto.productId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
+        lock: { mode: "pessimistic_write" },
       });
 
       if (!product) {
-        throw new BadRequestException('Product not found');
+        throw new BadRequestException("Product not found");
       }
 
       if (product.stock < dto.quantity) {
-        throw new BadRequestException('Insufficient stock');
+        throw new BadRequestException("Insufficient stock");
       }
 
       let cart = await queryRunner.manager.findOne(Cart, {
         where: { user: { id: userId } },
-        relations: ['items'],
+        relations: ["items"],
       });
 
       if (!cart) {
@@ -99,7 +96,7 @@ export class CartService {
 
       // 🧠 cart size limit
       if (cart.items.length >= this.MAX_CART_ITEMS) {
-        throw new BadRequestException('Cart limit exceeded');
+        throw new BadRequestException("Cart limit exceeded");
       }
 
       let item = await queryRunner.manager.findOne(CartItem, {
@@ -113,11 +110,11 @@ export class CartService {
         item.quantity += dto.quantity;
 
         if (item.quantity > product.stock) {
-          throw new BadRequestException('Stock exceeded');
+          throw new BadRequestException("Stock exceeded");
         }
 
         if (item.quantity > this.MAX_QUANTITY_PER_ITEM) {
-          throw new BadRequestException('Max quantity per item exceeded');
+          throw new BadRequestException("Max quantity per item exceeded");
         }
       } else {
         item = queryRunner.manager.create(CartItem, {
@@ -134,12 +131,12 @@ export class CartService {
 
       return {
         statusCode: 200,
-        statusMessage: 'Item added to cart',
+        statusMessage: "Item added to cart",
         data: null,
       };
     } catch (err) {
       await queryRunner.rollbackTransaction();
-      console.error('add cart error ', err);
+      console.error("add cart error ", err);
       throw err;
     } finally {
       await queryRunner.release();
@@ -154,7 +151,7 @@ export class CartService {
 
     return {
       statusCode: 200,
-      statusMessage: 'Cart fetched successfully',
+      statusMessage: "Cart fetched successfully",
       data: {
         ...cart,
         total,
@@ -163,13 +160,9 @@ export class CartService {
   }
 
   // ================= UPDATE ITEM =================
-  async updateItem(
-    userId: string,
-    itemId: string,
-    dto: UpdateCartItemDto,
-  ) {
+  async updateItem(userId: string, itemId: string, dto: UpdateCartItemDto) {
     if (dto.quantity < 0) {
-      throw new BadRequestException('Invalid quantity');
+      throw new BadRequestException("Invalid quantity");
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -182,12 +175,12 @@ export class CartService {
           id: itemId,
           cart: { user: { id: userId } },
         },
-        relations: ['product'],
-        lock: { mode: 'pessimistic_write' },
+        relations: ["product"],
+        lock: { mode: "pessimistic_write" },
       });
 
       if (!item) {
-        throw new BadRequestException('Cart item not found');
+        throw new BadRequestException("Cart item not found");
       }
 
       // 🧠 quantity = 0 → delete
@@ -198,17 +191,17 @@ export class CartService {
 
         return {
           statusCode: 200,
-          statusMessage: 'Item removed from cart',
+          statusMessage: "Item removed from cart",
           data: null,
         };
       }
 
       if (dto.quantity > item.product.stock) {
-        throw new BadRequestException('Insufficient stock');
+        throw new BadRequestException("Insufficient stock");
       }
 
       if (dto.quantity > this.MAX_QUANTITY_PER_ITEM) {
-        throw new BadRequestException('Max quantity exceeded');
+        throw new BadRequestException("Max quantity exceeded");
       }
 
       item.quantity = dto.quantity;
@@ -219,7 +212,7 @@ export class CartService {
 
       return {
         statusCode: 200,
-        statusMessage: 'Cart updated successfully',
+        statusMessage: "Cart updated successfully",
         data: null,
       };
     } catch (err) {
@@ -240,14 +233,14 @@ export class CartService {
     });
 
     if (!item) {
-      throw new BadRequestException('Cart item not found');
+      throw new BadRequestException("Cart item not found");
     }
 
     await this.cartItemRepo.remove(item);
 
     return {
       statusCode: 200,
-      statusMessage: 'Item removed from cart',
+      statusMessage: "Item removed from cart",
       data: null,
     };
   }
@@ -256,13 +249,13 @@ export class CartService {
   async clearCart(userId: string) {
     const cart = await this.cartRepo.findOne({
       where: { user: { id: userId } },
-      relations: ['items'],
+      relations: ["items"],
     });
 
     if (!cart || cart.items.length === 0) {
       return {
         statusCode: 200,
-        statusMessage: 'Cart already empty',
+        statusMessage: "Cart already empty",
         data: null,
       };
     }
@@ -271,7 +264,7 @@ export class CartService {
 
     return {
       statusCode: 200,
-      statusMessage: 'Cart cleared successfully',
+      statusMessage: "Cart cleared successfully",
       data: null,
     };
   }

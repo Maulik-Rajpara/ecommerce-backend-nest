@@ -8,19 +8,17 @@ import {
   UpdateDateColumn,
   Column,
   DeleteDateColumn,
-} from 'typeorm';
+} from "typeorm";
 
+import { CartItem } from "./cart-item.entity";
+import { User } from "../../users/entities/user.entity";
 
-import { CartItem } from './cart-item.entity';
-import { User } from '../../users/entities/user.entity';
-
-@Entity('carts')
+@Entity("carts")
 export class Cart {
-  
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @OneToOne(() => User, (user) => user.cart, { onDelete: 'CASCADE' })
+  @OneToOne(() => User, (user) => user.cart, { onDelete: "CASCADE" })
   @JoinColumn()
   user: User;
 
@@ -28,7 +26,6 @@ export class Cart {
     cascade: true,
   })
   items: CartItem[];
-
 
   @CreateDateColumn()
   createdAt: Date;
@@ -41,5 +38,4 @@ export class Cart {
 
   @DeleteDateColumn()
   deletedAt: Date;
- 
 }

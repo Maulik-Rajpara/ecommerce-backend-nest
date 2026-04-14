@@ -9,7 +9,7 @@ export class EventProcessorCron {
   constructor(private processor: EventProcessorService) {}
 
   @Cron(CronExpression.EVERY_10_SECONDS)
-// every 10 sec
+  // every 10 sec
   async handle() {
     //console.log("⏰ Running event processor cron...");
     await this.processor.processEvents();

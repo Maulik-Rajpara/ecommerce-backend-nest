@@ -1,5 +1,6 @@
 import { Inject, Injectable, OnModuleInit } from "@nestjs/common";
 import { ClientKafka } from "@nestjs/microservices";
+import { lastValueFrom } from "rxjs";
 
 @Injectable()
 export class KafkaService implements OnModuleInit {
@@ -8,19 +9,17 @@ export class KafkaService implements OnModuleInit {
   async onModuleInit() {
     //this.kafka.subscribeToResponseOf("payment-success");
     await this.kafka.connect();
-     console.log('📥 Kafka connect');
+    console.log("📥 Kafka connect");
     await new Promise((res) => setTimeout(res, 3000));
   }
 
-  async emit(topic: string, message: any) {
-      try {
-      return await this.kafka.emit(topic, message);
-    } catch (err) {
+  async emit(topic: string, message: Record<string, unknown>) {
+    try {
+      await lastValueFrom(this.kafka.emit(topic, message));
+    } catch {
       console.log("Kafka retry...");
       await new Promise((res) => setTimeout(res, 2000));
-      return this.kafka.emit(topic, message);
+      await lastValueFrom(this.kafka.emit(topic, message));
     }
   }
-
-  
 }

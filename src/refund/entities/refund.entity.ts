@@ -4,36 +4,36 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
-} from 'typeorm';
-import { Payment } from '../../payment/entities/payment.entity';
+} from "typeorm";
+import { Payment } from "../../payment/entities/payment.entity";
 
 export enum RefundStatus {
-  INITIATED = 'INITIATED',
-  SUCCESS = 'SUCCESS',
-  FAILED = 'FAILED',
+  INITIATED = "INITIATED",
+  SUCCESS = "SUCCESS",
+  FAILED = "FAILED",
 }
 
-@Entity('refunds')
+@Entity("refunds")
 export class Refund {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @ManyToOne(() => Payment, (payment) => payment.refunds, {
-    onDelete: 'CASCADE',
+    onDelete: "CASCADE",
   })
   payment: Payment;
 
   @Column()
   paymentId: string;
 
-  @Column({ type: 'numeric', precision: 10, scale: 2 })
+  @Column({ type: "numeric", precision: 10, scale: 2 })
   amount: number;
 
   @Column({ nullable: true })
   razorpayRefundId: string;
 
   @Column({
-    type: 'enum',
+    type: "enum",
     enum: RefundStatus,
     default: RefundStatus.INITIATED,
   })

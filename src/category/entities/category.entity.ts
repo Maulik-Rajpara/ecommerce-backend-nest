@@ -1,5 +1,4 @@
-
-import { Product } from '../../product/entities/product.entity';
+import { Product } from "../../product/entities/product.entity";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -10,11 +9,11 @@ import {
   UpdateDateColumn,
   JoinColumn,
   Index,
-} from 'typeorm';
+} from "typeorm";
 
-@Entity('categories')
+@Entity("categories")
 export class Category {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Index()
@@ -24,14 +23,14 @@ export class Category {
   @Column({ unique: true })
   slug: string;
 
-  @Column({ nullable: false })
-  image: string;
+  @Column({  type: 'text', nullable: true })
+  image: string | null;
 
   @ManyToOne(() => Category, (category) => category.children, {
     nullable: true,
-    onDelete: 'SET NULL',
+    onDelete: "SET NULL",
   })
-  @JoinColumn({ name: 'parentId' })
+  @JoinColumn({ name: "parentId" })
   parent: Category | null;
 
   @OneToMany(() => Category, (category) => category.parent)

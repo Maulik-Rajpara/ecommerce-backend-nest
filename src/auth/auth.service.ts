@@ -1,158 +1,158 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { UsersService } from '../users/users.service';
-import * as bcrypt from 'bcrypt';
-import { JwtService } from '@nestjs/jwt';
-import { LoginDto } from './dto/login.dto';
-import { ChangePasswordDto } from './dto/change.password.dto';
-  import * as crypto from 'crypto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
-import { EmailService } from '../email/email.service';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { PinoLogger } from 'nestjs-pino';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { UsersService } from "../users/users.service";
+import * as bcrypt from "bcrypt";
+import { JwtService } from "@nestjs/jwt";
+import { LoginDto } from "./dto/login.dto";
+import { ChangePasswordDto } from "./dto/change.password.dto";
+import * as crypto from "crypto";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
+import { PinoLogger } from "nestjs-pino";
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
     private logger: PinoLogger,
-    @InjectQueue('email') private emailQueue: Queue,
+    @InjectQueue("email") private emailQueue: Queue,
   ) {}
 
   async login(loginDto: LoginDto) {
-
     try {
-     const { email, password } = loginDto;
+      const { email, password } = loginDto;
 
-    // 🔍 find user
-    const user = await this.usersService.findByEmail(email);
-      console.log('User found:', user); // 👈 ADD THIS
-    if (!user || typeof user === 'string' || !user.password) {
-      throw new UnauthorizedException('Invalid credentials');
+      const user = await this.usersService.findByEmail(email);
+      if (!user || !user.password) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      if (!user.isActive) {
+        throw new UnauthorizedException("Account is inactive");
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+
+      if (!isMatch) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      const payload = {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+      };
+
+      const token = this.jwtService.sign(payload);
+
+      return {
+        accessToken: token,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown login error";
+      this.logger.warn({ email: loginDto.email, message }, "Login failed");
+      throw error;
     }
-
-    // 🔐 compare password
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // 🎟 JWT payload
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
-    // 🔥 generate token
-    const token = this.jwtService.sign(payload);
-
-    return {
-      accessToken: token,
-    };
-  } catch (error) {
-    console.error(error); // 👈 ADD THIS
-    throw error;
-  }
-   
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.usersService.findByIdWithPassword(userId);
 
-    if (!user ) {
-      throw new BadRequestException('User not found');
+    if (!user) {
+      throw new BadRequestException("User not found");
     }
 
     const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
 
     if (!isMatch) {
-      throw new BadRequestException('Current password is incorrect');
+      throw new BadRequestException("Current password is incorrect");
     }
 
     const hashed = await bcrypt.hash(dto.newPassword, 10);
 
-  await this.usersService.updatePassword(userId, hashed);
+    await this.usersService.updatePassword(userId, hashed);
 
-  return {
-    statusCode: 200,
-    statusMessage: 'Password updated successfully',
-    data: null,
-  };
-}
-
-async forgotPassword(dto: ForgotPasswordDto) {
-  const { email } = dto;
-
-  const user = await this.usersService.findByEmail(email);
-
-  if (!user) {
-   throw new BadRequestException('Email is not found');
+    return {
+      statusCode: 200,
+      statusMessage: "Password updated successfully",
+      data: null,
+    };
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const { email } = dto;
+    const user = await this.usersService.findByEmail(email);
 
-  await this.usersService.updateResetPasswordToken(
-    user,
-    token,
-    new Date(Date.now() + 15 * 60 * 1000),
-  );
+    if (user) {
+      const token = crypto.randomBytes(32).toString("hex");
+      const resetBaseUrl =
+        this.usersService.getResetPasswordBaseUrl() ??
+        "http://localhost:3000/reset-password";
+      const resetLink = `${resetBaseUrl}?token=${token}`;
 
-  const resetLink = `http://localhost:3000/reset-password?token=${token}`;
+      await this.usersService.updateResetPasswordToken(
+        user,
+        token,
+        new Date(Date.now() + 15 * 60 * 1000),
+      );
 
-  console.log('Reset Link:', resetLink);
-  this.logger.info(`Processing email job...`);
-  
-   this.emailQueue.add('send-reset-email', {
-    email,
-     subject: 'Reset Your Password',
-      html:
-      ` <h3>Password Reset</h3>
+      this.logger.info({ email }, "Queueing password reset email");
+
+      await this.emailQueue.add(
+        "send-reset-email",
+        {
+          email,
+          subject: "Reset Your Password",
+          html: ` <h3>Password Reset</h3>
         <p>Click below link to reset password:</p>
         <a href="${resetLink}">${resetLink}</a>
         <p>This link will expire in 15 minutes</p>
       `,
-  }, {
-    attempts: 3, // retry 3 times
-    backoff: {
-      type: 'exponential',
-      delay: 5000,
-    },
-  },)
+        },
+        {
+          attempts: 3,
+          backoff: {
+            type: "exponential",
+            delay: 5000,
+          },
+        },
+      );
+    }
 
- return {
-    statusCode: 200,
-    statusMessage: 'Reset password link share successfully',
-    data: {"resetLink": resetLink}
- }
-}
-
-async resetPassword(dto: ResetPasswordDto) {
-  const { token, password } = dto;
-
-  const user = await this.usersService.findByResetToken(token);
-
-  if (!user) {
-    throw new BadRequestException('Invalid token');
+    return {
+      statusCode: 200,
+      statusMessage: "If the email exists, a reset link has been sent",
+      data: null,
+    };
   }
 
-  if (user.resetPasswordExpires && user.resetPasswordExpires < new Date()) {
-    throw new BadRequestException('Token expired');
+  async resetPassword(dto: ResetPasswordDto) {
+    const { token, password } = dto;
+
+    const user = await this.usersService.findByResetToken(token);
+
+    if (!user) {
+      throw new BadRequestException("Invalid token");
+    }
+
+    if (user.resetPasswordExpires && user.resetPasswordExpires < new Date()) {
+      throw new BadRequestException("Token expired");
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await this.usersService.updatePasswordAndClearToken(user, hashedPassword);
+
+    return {
+      statusCode: 200,
+      statusMessage: "Password reset successful",
+      data: null,
+    };
   }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  await this.usersService.updatePasswordAndClearToken(
-    user,
-    hashedPassword,
-  );
-
-  return {
-    statusCode: 200,
-    statusMessage: 'Password reset successful',
-    data: null,
-  };
-}
 }

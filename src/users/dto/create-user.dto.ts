@@ -1,4 +1,10 @@
-import { IsEmail, IsNotEmpty, MinLength, Matches, IsOptional } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  MinLength,
+  Matches,
+  IsOptional,
+} from "class-validator";
 
 export class CreateUserDto {
   @IsEmail()
@@ -10,7 +16,7 @@ export class CreateUserDto {
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
     {
       message:
-        'Password must be minimum 8 characters, include uppercase, lowercase, number and special character',
+        "Password must be minimum 8 characters, include uppercase, lowercase, number and special character",
     },
   )
   password: string;
@@ -21,5 +27,3 @@ export class CreateUserDto {
   @IsOptional()
   lastName?: string;
 }
-
-

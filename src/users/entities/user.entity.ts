@@ -1,5 +1,5 @@
-import { Order } from '../../order/entities/order.entity';
-import { Cart } from '../../cart/entities/cart.entity';
+import { Order } from "../../order/entities/order.entity";
+import { Cart } from "../../cart/entities/cart.entity";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -9,16 +9,16 @@ import {
   Index,
   OneToOne,
   OneToMany,
-} from 'typeorm';
+} from "typeorm";
 
 export enum UserRole {
-  USER = 'user',
-  ADMIN = 'admin',
+  USER = "user",
+  ADMIN = "admin",
 }
 
-@Entity('users')
+@Entity("users")
 export class User {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Index({ unique: true }) // 🔥 indexing + unique
@@ -28,14 +28,14 @@ export class User {
   @Column()
   password: string;
 
-  @Column({ name: 'first_name' })
+  @Column({ name: "first_name" })
   firstName: string;
 
-  @Column({ name: 'last_name', nullable: true })
+  @Column({ name: "last_name", nullable: true })
   lastName: string;
 
   @Column({
-    type: 'enum',
+    type: "enum",
     enum: UserRole,
     default: UserRole.USER,
   })
@@ -50,16 +50,15 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: "updated_at" })
   updatedAt: Date;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: "varchar", nullable: true })
   resetPasswordToken: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: "timestamp", nullable: true })
   resetPasswordExpires: Date | null;
-
 }

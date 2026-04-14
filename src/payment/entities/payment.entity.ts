@@ -10,23 +10,23 @@ import {
   JoinColumn,
   Index,
   OneToMany,
-} from 'typeorm';
-import { Order } from '../../order/entities/order.entity';
-import { Refund } from '../../refund/entities/refund.entity';
+} from "typeorm";
+import { Order } from "../../order/entities/order.entity";
+import { Refund } from "../../refund/entities/refund.entity";
 
 export enum PaymentStatus {
-  PENDING = 'PENDING',
-  SUCCESS = 'SUCCESS',
-  FAILED = 'FAILED',
+  PENDING = "PENDING",
+  SUCCESS = "SUCCESS",
+  FAILED = "FAILED",
 }
 
-@Entity('payments')
+@Entity("payments")
 export class Payment {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @ManyToOne(() => Order, (order) => order.id)
-  @JoinColumn({ name: 'orderId' })
+  @JoinColumn({ name: "orderId" })
   order: Order;
 
   @Column()
@@ -43,17 +43,17 @@ export class Payment {
   razorpaySignature: string;
 
   @Column({
-    type: 'enum',
+    type: "enum",
     enum: PaymentStatus,
     default: PaymentStatus.PENDING,
   })
   status: PaymentStatus;
 
-  @Column('decimal')
+  @Column("decimal")
   amount: number;
 
   @Column({ default: 0 })
-  retryCount: number; 
+  retryCount: number;
 
   @OneToMany(() => Refund, (refund) => refund.payment)
   refunds: Refund[];

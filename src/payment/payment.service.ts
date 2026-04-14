@@ -9,10 +9,21 @@ import { Repository } from "typeorm";
 import { OrderService } from "../order/order.service";
 import { Queue } from "bullmq";
 import { InjectQueue } from "@nestjs/bullmq";
-import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Refund, RefundStatus } from "src/refund/entities/refund.entity";
-import { EVENTS } from "src/common/events/events.constants";
 import { KafkaService } from "src/kafka/kafka.service";
+
+interface RazorpayPaymentEvent {
+  id: string;
+  order_id: string;
+}
+
+interface RazorpayRefundPayload {
+  refund?: {
+    entity?: {
+      id?: string;
+    };
+  };
+}
 
 @Injectable()
 export class PaymentService {
@@ -31,8 +42,6 @@ export class PaymentService {
 
     @InjectQueue("payment-retry")
     private retryQueue: Queue,
-
-    private eventEmitter: EventEmitter2,
 
     private kafkaService: KafkaService,
   ) {
@@ -76,7 +85,10 @@ export class PaymentService {
 
   // ================= VERIFY SIGNATURE =================
   verifySignature(payload: string, signature: string) {
-    const secret = this.configService.get("RAZORPAY_WEBHOOK_SECRET");
+    const secret = this.configService.get<string>("RAZORPAY_WEBHOOK_SECRET");
+    if (!secret) {
+      throw new BadRequestException("Webhook secret is not configured");
+    }
 
     const expected = crypto
       .createHmac("sha256", secret)
@@ -87,61 +99,61 @@ export class PaymentService {
   }
 
   // ================= PAYMENT SUCCESS =================
-  async markPaymentSuccess(data: any) {
-   try{
-     const payment = await this.paymentRepo.findOne({
-      where: { razorpayOrderId: data.order_id },
-      relations: ["order"],
-    });
+  async markPaymentSuccess(data?: RazorpayPaymentEvent) {
+    if (!data) return;
 
-    if (!payment || !payment.order) return;
+    try {
+      const payment = await this.paymentRepo.findOne({
+        where: { razorpayOrderId: data.order_id },
+        relations: ["order"],
+      });
 
-    const order = payment.order;
+      if (!payment || !payment.order) return;
 
-    // ❗ already paid
-    if (order.status === OrderStatus.PAID) {
-      console.log("⚠️ Order already paid");
-     // throw new BadRequestException("Order already paid");
-      
-      return;
+      const order = payment.order;
+
+      // ❗ already paid
+      if (order.status === OrderStatus.PAID) {
+        console.log("⚠️ Order already paid");
+        // throw new BadRequestException("Order already paid");
+
+        return;
+      }
+
+      // ❗ invalid state
+      if (order.status !== OrderStatus.PENDING) {
+        console.log("⚠️ Order not pending, ignoring success");
+        // throw new BadRequestException("Order not pending, ignoring success");
+        return;
+      }
+
+      // ❗ duplicate webhook
+      if (payment.status === PaymentStatus.SUCCESS) {
+        console.log("⚠️ Duplicate payment success ignored");
+
+        //throw new BadRequestException("Duplicate payment success ignored");
+        return;
+      }
+
+      payment.status = PaymentStatus.SUCCESS;
+      payment.razorpayPaymentId = data.id;
+
+      await this.paymentRepo.save(payment);
+
+      await this.kafkaService.emit("payment-success", {
+        razorpayOrderId: data.order_id,
+        paymentId: data.id,
+      });
+    } catch (error) {
+      console.error("Error marking payment success:", error);
+      throw error;
     }
-
-    // ❗ invalid state
-    if (order.status !== OrderStatus.PENDING) {
-
-      console.log("⚠️ Order not pending, ignoring success");
-     // throw new BadRequestException("Order not pending, ignoring success");
-      return
-    }
-
-    // ❗ duplicate webhook
-    if (payment.status === PaymentStatus.SUCCESS) {
-      console.log("⚠️ Duplicate payment success ignored");
-      
-      //throw new BadRequestException("Duplicate payment success ignored");
-      return;
-    }
-
-    payment.status = PaymentStatus.SUCCESS;
-    payment.razorpayPaymentId = data.id;
-
-    await this.paymentRepo.save(payment);
-
-    // await this.orderService.handlePaymentSuccess(order.id, data.id);
-    await this.kafkaService.emit('payment-success', {
-      orderId: payment.order.id,
-      userId: payment.order.userId,
-      paymentId: data.id,
-    });
-  
-  }catch (error) {
-    console.error("Error marking payment success:", error);
-    throw error;
-   }
   }
 
   // ================= PAYMENT FAILED =================
-  async markPaymentFailed(data: any) {
+  async markPaymentFailed(data?: RazorpayPaymentEvent) {
+    if (!data) return;
+
     const payment = await this.paymentRepo.findOne({
       where: { razorpayOrderId: data.order_id },
       relations: ["order"],
@@ -154,18 +166,23 @@ export class PaymentService {
     }
 
     const order = payment.order;
-    if (order.status === OrderStatus.CANCELLED) return;
-    if (order.retryCount >= 3) {
-      // await this.orderService.handlePaymentFailed(order.id);
-      console.log("⚠️ Max retries reached, marking order failed");
-
-      return;
-    }
-
-    await this.orderService.incrementRetryCount(order.id);
+    if (order.status !== OrderStatus.PENDING) return;
 
     payment.status = PaymentStatus.FAILED;
     await this.paymentRepo.save(payment);
+
+    const nextRetryCount = order.retryCount + 1;
+    await this.orderService.incrementRetryCount(order.id);
+
+    if (order.expiresAt && order.expiresAt < new Date()) {
+      await this.orderService.handlePaymentFailed(data.order_id);
+      return;
+    }
+
+    if (nextRetryCount >= 3) {
+      await this.orderService.handlePaymentFailed(data.order_id);
+      return;
+    }
 
     await this.retryQueue.add(
       "retry-payment",
@@ -174,12 +191,6 @@ export class PaymentService {
         jobId: payment.id, // 🔥 UNIQUE
       },
     );
-
-    await this.kafkaService.emit('payment.failed', {
-      orderId: payment.order.id,
-      userId: payment.order.userId,
-      paymentId: data.id,
-    });
   }
 
   // ================= RETRY PAYMENT =================
@@ -198,7 +209,7 @@ export class PaymentService {
 
     // ❗ expired
     if (order.expiresAt && order.expiresAt < new Date()) {
-      await this.orderService.handlePaymentFailed(order.id);
+      await this.orderService.handlePaymentFailed(order.razorpayOrderId);
       return;
     }
 
@@ -220,12 +231,7 @@ export class PaymentService {
     await this.paymentRepo.save(newPayment);
 
     await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
-
-    this.eventEmitter.emit("payment.retry.success", {
-      orderId: order.id,
-      userId: order.userId,
-      razorpayOrderId: razorpayOrder.id,
-    });
+    return razorpayOrder;
   }
 
   // ================= REFUND =================
@@ -249,11 +255,11 @@ export class PaymentService {
       throw new BadRequestException("Invalid refund amount");
     }
 
-    const totalRefundedRaw = await this.refundRepo
+    const totalRefundedRaw = (await this.refundRepo
       .createQueryBuilder("r")
       .select("COALESCE(SUM(r.amount),0)", "total")
       .where("r.paymentId = :id", { id: payment.id })
-      .getRawOne();
+      .getRawOne()) as { total: string | null };
 
     const totalRefunded = Number(totalRefundedRaw.total);
 
@@ -261,12 +267,12 @@ export class PaymentService {
       throw new BadRequestException("Refund exceeds amount");
     }
 
-    const razorpayRefund = await this.razorpay.payments.refund(
+    const razorpayRefund = (await this.razorpay.payments.refund(
       payment.razorpayPaymentId,
       {
         amount: refundAmount * 100,
       },
-    );
+    )) as { id: string };
 
     const refund = this.refundRepo.create({
       payment,
@@ -282,11 +288,12 @@ export class PaymentService {
   }
 
   // ================= REFUND SUCCESS =================
-  async handleRefundSuccess(payload: any) {
-    const data = payload.refund.entity;
+  async handleRefundSuccess(payload?: RazorpayRefundPayload) {
+    const refundId = payload?.refund?.entity?.id;
+    if (!refundId) return;
 
     const refund = await this.refundRepo.findOne({
-      where: { razorpayRefundId: data.id },
+      where: { razorpayRefundId: refundId },
       relations: ["payment", "payment.order"],
     });
 
@@ -300,11 +307,11 @@ export class PaymentService {
 
     const payment = refund.payment;
 
-    const totalRaw = await this.refundRepo
+    const totalRaw = (await this.refundRepo
       .createQueryBuilder("r")
       .select("SUM(r.amount)", "total")
       .where("r.paymentId = :id", { id: payment.id })
-      .getRawOne();
+      .getRawOne()) as { total: string | null };
 
     const total = Number(totalRaw.total);
 
@@ -321,11 +328,12 @@ export class PaymentService {
   }
 
   // ================= REFUND FAILED =================
-  async handleRefundFailed(payload: any) {
-    const data = payload.refund.entity;
+  async handleRefundFailed(payload?: RazorpayRefundPayload) {
+    const refundId = payload?.refund?.entity?.id;
+    if (!refundId) return;
 
     const refund = await this.refundRepo.findOne({
-      where: { razorpayRefundId: data.id },
+      where: { razorpayRefundId: refundId },
     });
 
     if (!refund) return;

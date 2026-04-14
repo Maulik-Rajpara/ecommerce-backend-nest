@@ -5,98 +5,66 @@ import {
   Headers,
   BadRequestException,
 } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import express from "express";
+import type { Request } from "express";
 import { PaymentService } from "src/payment/payment.service";
-import { Repository } from "typeorm";
-import { WebhookEvent } from "./entities/webhook.entities";
 import { EventStoreService } from "src/event-store/event-store.service";
 
 @Controller("webhook")
 export class PaymentWebhookController {
-  constructor(private eventStoreService: EventStoreService) {}
-
-  // PaymentWebhookController
+  constructor(
+    private readonly paymentService: PaymentService,
+    private readonly eventStoreService: EventStoreService,
+  ) {}
 
   @Post("razorpay")
-  async handleWebhook(@Req() req: Request) {
+  async handleWebhook(
+    @Req() req: Request,
+    @Headers("x-razorpay-signature") signature?: string,
+  ) {
     try {
-      const rawBody = (req as any).rawBody || req.body;
+      if (!signature) {
+        throw new BadRequestException("Missing webhook signature");
+      }
 
-      console.log("📡 Webhook received:", rawBody?.event);
+      const rawBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(JSON.stringify(req.body ?? {}));
+      const payload = rawBody.toString("utf8");
 
-      const parsedBody =
-        typeof rawBody === "string"
-          ? JSON.parse(rawBody)
-          : Buffer.isBuffer(rawBody)
-            ? JSON.parse(rawBody.toString())
-            : rawBody;
+      if (!this.paymentService.verifySignature(payload, signature)) {
+        throw new BadRequestException("Invalid webhook signature");
+      }
+
+      const parsedBody = JSON.parse(payload) as {
+        event?: string;
+        payload?: {
+          payment?: { entity?: { id?: string } };
+          refund?: { entity?: { id?: string } };
+        };
+      };
 
       const event = parsedBody?.event;
-      const paymentId = parsedBody?.payload?.payment?.entity?.id || "unknown";
+      const aggregateId =
+        parsedBody?.payload?.payment?.entity?.id ??
+        parsedBody?.payload?.refund?.entity?.id;
 
-      const key = `${event}_${paymentId}`;
+      if (!event || !aggregateId) {
+        throw new BadRequestException("Invalid webhook payload");
+      }
+
+      const key = `${event}_${aggregateId}`;
 
       await this.eventStoreService.createEvent({
         type: event,
-        aggregateId: paymentId,
+        aggregateId,
         payload: parsedBody,
         idempotencyKey: key,
       });
-      console.log("📡 Webhook received:", key);
-      return { status: "ok" };
+      return { acknowledged: true };
     } catch (err) {
-      console.error("Error processing webhook:", err);
-      throw new BadRequestException("Webhook failed ",err.message);
+      const message =
+        err instanceof Error ? err.message : "Webhook processing failed";
+      throw new BadRequestException(message);
     }
   }
-
-  // @Post('razorpay')
-  // async handleWebhook(
-  //   @Req() req: express.Request,
-  //   @Headers('x-razorpay-signature') signature: string,
-  // ) {
-  //   const payload = JSON.stringify(req.body);
-
-  //   const isValid = this.paymentService.verifySignature(
-  //     payload,
-  //     signature,
-  //   );
-
-  //   if (!isValid && process.env.NODE_ENV === 'production') {
-  //       throw new BadRequestException('Invalid signature');
-  //    }
-
-  //   const event = req.body.event;
-
-  //   console.log('📡 Webhook received:', event);
-
-  //   const eventId = req.body?.event + "_" + req.body?.payload?.payment?.entity?.id;
-
-  //   const exists = await this.webhookRepo.findOne({
-  //     where: { eventId },
-  //   });
-
-  //   if (exists) {
-  //     console.log("⚠️ Duplicate webhook skipped");
-  //     return { status: "ok" };
-  //   }
-
-  //   await this.webhookRepo.save({ eventId, eventType: event });
-
-  //   switch (event) {
-  //     case 'refund.processed':
-  //       await this.paymentService.handleRefundSuccess(req.body.payload);
-  //       break;
-
-  //     case 'refund.failed':
-  //       await this.paymentService.handleRefundFailed(req.body.payload);
-  //       break;
-
-  //     default:
-  //       console.log('⚠️ Unhandled webhook:', event);
-  //   }
-
-  //   return { status: 'ok' };
-  // }
 }

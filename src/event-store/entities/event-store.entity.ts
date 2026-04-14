@@ -1,6 +1,11 @@
 // src/event-store/entities/event-store.entity.ts
 
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+} from "typeorm";
 
 export enum EventStatus {
   PENDING = "PENDING",
@@ -43,6 +48,6 @@ export class EventStore {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: "timestamp", nullable: true })
   nextRetryAt: Date;
 }

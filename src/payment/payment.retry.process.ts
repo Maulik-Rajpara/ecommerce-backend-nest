@@ -1,18 +1,21 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
-import { PaymentService } from './payment.service';
+import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { Job } from "bullmq";
+import { PaymentService } from "./payment.service";
 
-@Processor('payment-retry')
+interface PaymentRetryJobData {
+  paymentId: string;
+}
+
+@Processor("payment-retry")
 export class PaymentRetryProcessor extends WorkerHost {
   constructor(private paymentService: PaymentService) {
-     super();
+    super();
   }
 
- 
-  async process(job: Job<any>) {
+  async process(job: Job<PaymentRetryJobData>) {
     const { paymentId } = job.data;
 
-    console.log('🔁 Processing retry for:', paymentId);
+    console.log("🔁 Processing retry for:", paymentId);
 
     await this.paymentService.retryPayment(paymentId);
   }

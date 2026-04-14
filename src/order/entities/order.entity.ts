@@ -8,37 +8,35 @@ import {
   Column,
   JoinColumn,
   Index,
-} from 'typeorm';
-import { User } from '../../users/entities/user.entity';
-import { OrderItem } from './order-item.entity';
-import { Payment } from '../../payment/entities/payment.entity';
-import { Refund } from '../../refund/entities/refund.entity';
-
+} from "typeorm";
+import { User } from "../../users/entities/user.entity";
+import { OrderItem } from "./order-item.entity";
+import { Payment } from "../../payment/entities/payment.entity";
+import { Refund } from "../../refund/entities/refund.entity";
 
 export enum OrderStatus {
-  PENDING = 'PENDING',        // order created, payment pending
-  PAID = 'PAID',              // payment success
-  FAILED = 'FAILED',          // payment failed
-  CANCELLED = 'CANCELLED',    
-  SHIPPED = 'SHIPPED',
-  DELIVERED = 'DELIVERED',
-  REFUNDED = 'REFUNDED',      // fully refunded
-  PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED', // partially refunded
+  PENDING = "PENDING", // order created, payment pending
+  PAID = "PAID", // payment success
+  FAILED = "FAILED", // payment failed
+  CANCELLED = "CANCELLED",
+  SHIPPED = "SHIPPED",
+  DELIVERED = "DELIVERED",
+  REFUNDED = "REFUNDED", // fully refunded
+  PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED", // partially refunded
 }
 
-
-@Entity('orders')
+@Entity("orders")
 export class Order {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @ManyToOne(() => User, (user) => user.orders, {
-    onDelete: 'CASCADE',
+    onDelete: "CASCADE",
   })
-  @JoinColumn({ name: 'userId', })
+  @JoinColumn({ name: "userId" })
   user: User;
 
-   @Index()
+  @Index()
   @Column({ nullable: true })
   userId: string;
 
@@ -47,14 +45,14 @@ export class Order {
   })
   items: OrderItem[];
 
-  @Column({ type: 'numeric', precision: 10, scale: 2 })
+  @Column({ type: "numeric", precision: 10, scale: 2 })
   totalAmount: number;
 
   @OneToMany(() => Payment, (payment) => payment.order)
-  payments: Payment[];  
+  payments: Payment[];
 
   @Column({
-    type: 'enum',
+    type: "enum",
     enum: OrderStatus,
     default: OrderStatus.PENDING,
   })
@@ -66,7 +64,7 @@ export class Order {
   @UpdateDateColumn()
   updatedAt: Date;
 
-   @Index()
+  @Index()
   @Column({ nullable: true })
   razorpayOrderId: string;
 
@@ -80,6 +78,6 @@ export class Order {
   refunds: Refund[];
 
   @Index()
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: "timestamp", nullable: true })
   expiresAt: Date;
 }

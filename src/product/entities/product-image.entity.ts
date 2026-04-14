@@ -5,12 +5,12 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
-} from 'typeorm';
-import { Product } from './product.entity';
+} from "typeorm";
+import { Product } from "./product.entity";
 
-@Entity('product_images')
+@Entity("product_images")
 export class ProductImage {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Column()
@@ -20,7 +20,7 @@ export class ProductImage {
   isPrimary: boolean;
 
   @ManyToOne(() => Product, (product) => product.images, {
-    onDelete: 'CASCADE',
+    onDelete: "CASCADE",
   })
   product: Product;
 

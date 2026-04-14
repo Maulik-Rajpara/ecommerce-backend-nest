@@ -4,7 +4,6 @@ import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
-import { PinoLogger } from "nestjs-pino";
 import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
@@ -18,7 +17,10 @@ async function bootstrap() {
     bodyParser: false,
   });
 
-  app.use("/payments/webhook", express.raw({ type: "application/json" }));
+  app.use(
+    "/api/v1/webhook/razorpay",
+    express.raw({ type: "application/json" }),
+  );
 
   app.use(express.json());
 
@@ -52,11 +54,11 @@ async function bootstrap() {
     transport: Transport.KAFKA,
     options: {
       client: {
-        clientId: 'ecommerce',
+        clientId: "ecommerce",
         brokers: ["localhost:9092"],
       },
       consumer: {
-       groupId: 'ecommerce-consumer-client-v2',
+        groupId: "ecommerce-consumer-client-v2",
       },
     },
   });
@@ -73,4 +75,4 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api", app, document);
 }
-bootstrap();
+void bootstrap();

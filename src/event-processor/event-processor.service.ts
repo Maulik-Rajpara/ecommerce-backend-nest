@@ -1,46 +1,41 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { EventStatus, EventStore } from "src/event-store/entities/event-store.entity";
-import { KafkaService } from "src/kafka/kafka.service";
+import {
+  EventStatus,
+  EventStore,
+} from "src/event-store/entities/event-store.entity";
 import { PaymentService } from "src/payment/payment.service";
 import { LessThanOrEqual, Repository } from "typeorm";
-const now = new Date();
+
 @Injectable()
 export class EventProcessorService {
   constructor(
     @InjectRepository(EventStore)
     private eventRepo: Repository<EventStore>,
-
-   // private paymentService: PaymentService,
-    private kafkaService: KafkaService,
+    private paymentService: PaymentService,
   ) {}
 
   async processEvents() {
     const events = await this.eventRepo.find({
-     where: [
+      where: [
         { status: EventStatus.PENDING },
-        { status: EventStatus.FAILED, nextRetryAt: LessThanOrEqual(now) },
+        {
+          status: EventStatus.FAILED,
+          nextRetryAt: LessThanOrEqual(new Date()),
+        },
       ],
       take: 10,
     });
 
-    
     for (const event of events) {
       try {
         event.status = EventStatus.PROCESSING;
         await this.eventRepo.save(event);
 
-        if (event.retryCount > 3) {
-            event.status = EventStatus.DEAD;
+        if (event.retryCount >= 3) {
+          event.status = EventStatus.DEAD;
 
-            // 💀 send to DLQ
-            await this.kafkaService.emit('payment.dlq', {
-              eventId: event.id,
-              type: event.type,
-              error: event.error,
-            });
-
-            await this.eventRepo.save(event);
+          await this.eventRepo.save(event);
           continue;
         }
 
@@ -51,7 +46,8 @@ export class EventProcessorService {
       } catch (err) {
         event.retryCount += 1;
         event.status = EventStatus.FAILED;
-        event.error = err.message;
+        event.error =
+          err instanceof Error ? err.message : "Unknown event processing error";
 
         const delay = 1000 * 60 * event.retryCount; // 1min, 2min, 3min...
         event.nextRetryAt = new Date(Date.now() + delay);
@@ -62,69 +58,49 @@ export class EventProcessorService {
     }
   }
 
-  // async handleEvent(event: EventStore) {
-  //   const payload = event.payload;
-
-  //   switch (event.type) {
-  //     case "payment.captured":
-  //       await this.paymentService.markPaymentSuccess(
-  //         payload.payload.payment.entity,
-  //       );
-  //       break;
-
-  //     case "payment.failed":
-  //       await this.paymentService.markPaymentFailed(
-  //         payload.payload.payment.entity,
-  //       );
-  //       break;
-
-  //     case "refund.processed":
-  //       await this.paymentService.handleRefundSuccess(payload.payload);
-  //       break;
-
-  //     case "refund.failed":
-  //       await this.paymentService.handleRefundFailed(payload.payload);
-  //       break;
-
-  //     default:
-  //       console.log("⚠️ Unknown event:", event.type);
-  //   }
-  // }
-
   async handleEvent(event: EventStore) {
-    const payload = event.payload;
+    const payload = event.payload as {
+      payload?: {
+        payment?: { entity?: { id?: string; order_id?: string } };
+        refund?: { entity?: { id?: string } };
+      };
+    };
 
     switch (event.type) {
-      case "payment.captured":
-        console.log(`⏳ Processing ${payload.payload.payment.entity.id} events...`);
-       
-        await this.kafkaService.emit('payment-success', {
-          orderId: payload.payload.payment.entity.order_id,
-          paymentId: payload.payload.payment.entity.id,
+      case "payment.captured": {
+        const paymentEntity = payload.payload?.payment?.entity;
+        if (!paymentEntity?.id || !paymentEntity.order_id) {
+          throw new Error("Missing payment payload");
+        }
+        await this.paymentService.markPaymentSuccess({
+          id: paymentEntity.id,
+          order_id: paymentEntity.order_id,
         });
         break;
+      }
 
-      case "payment.failed":
-        await this.kafkaService.emit('payment.failed', {
-           orderId: payload.payload.payment.entity.order_id,
-          paymentId: payload.payload.payment.entity.id,
+      case "payment.failed": {
+        const paymentEntity = payload.payload?.payment?.entity;
+        if (!paymentEntity?.id || !paymentEntity.order_id) {
+          throw new Error("Missing payment payload");
+        }
+        await this.paymentService.markPaymentFailed({
+          id: paymentEntity.id,
+          order_id: paymentEntity.order_id,
         });
         break;
+      }
 
       case "refund.processed":
-        await this.kafkaService.emit('refund.success', {
-          orderId: payload.payload.payment.entity.notes?.orderId,
-        });
+        await this.paymentService.handleRefundSuccess(payload.payload);
         break;
 
       case "refund.failed":
-        await this.kafkaService.emit('refund.failed', {
-          orderId: payload.payload.payment.entity.notes?.orderId,
-        });
+        await this.paymentService.handleRefundFailed(payload.payload);
         break;
 
       default:
-        console.log("⚠️ Unknown event:", event.type);
+        throw new Error(`Unknown event type: ${event.type}`);
     }
   }
 
