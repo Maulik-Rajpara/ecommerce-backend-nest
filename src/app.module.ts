@@ -23,6 +23,8 @@ import { NotificationModule } from './notification/notification.module';
 import { EventsModule } from './common/events/events.module';
 import { EventStoreModule } from './event-store/event-store.module';
 import { EventProcessorModule } from './event-processor/event-processor.module';
+import { KafkaModule } from './kafka/kafka.module';
+import { KafkaConsumerModule } from './kafka/consumers/kafka.consumer.module';
 
 @Module({
   imports: [
@@ -108,7 +110,12 @@ import { EventProcessorModule } from './event-processor/event-processor.module';
     
     EventStoreModule,
     
-    EventProcessorModule
+    EventProcessorModule,
+    
+    KafkaModule,
+
+    KafkaConsumerModule
+    
     
   ],
   controllers: [AppController],

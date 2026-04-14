@@ -42,4 +42,7 @@ export class EventStore {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  nextRetryAt: Date;
 }

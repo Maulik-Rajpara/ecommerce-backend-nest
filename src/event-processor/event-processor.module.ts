@@ -7,11 +7,14 @@ import { PaymentModule } from 'src/payment/payment.module';
 
 import { EventStoreService } from 'src/event-store/event-store.service';
 import { EventAdminController } from './event-admin.controller';
+import { Kafka } from 'kafkajs';
+import { KafkaModule } from 'src/kafka/kafka.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([EventStore]),
     PaymentModule,
+    KafkaModule,
   ],
   providers: [EventProcessorService, EventProcessorCron,EventStoreService],
   controllers: [EventAdminController],

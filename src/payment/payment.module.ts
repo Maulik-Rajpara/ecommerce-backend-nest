@@ -16,6 +16,8 @@ import { Refund } from 'src/refund/entities/refund.entity';
 import { RefundModule } from 'src/refund/refund.module';
 import { PaymentWebhookController } from 'src/webhook/webhook.controller';
 import { WebhookModule } from 'src/webhook/webhook.module';
+import { KafkaModule } from 'src/kafka/kafka.module';
+import { PaymentConsumer } from 'src/kafka/consumers/payment.consumer';
 
 @Module({
   imports: [
@@ -26,11 +28,12 @@ import { WebhookModule } from 'src/webhook/webhook.module';
     UsersModule,
     RefundModule,
     TypeOrmModule.forFeature([Payment, User, Refund]), 
-    OrderModule ,// ✅ VERY IMPORTANT,
+    OrderModule,
+    KafkaModule,// ✅ VERY IMPORTANT,
 
   ],
   controllers: [PaymentController],
-  providers: [PaymentService, PaymentRetryProcessor, NotifcationGateway,
+  providers: [PaymentService, PaymentRetryProcessor, NotifcationGateway
      ],
   exports: [PaymentService,  BullModule],
 })

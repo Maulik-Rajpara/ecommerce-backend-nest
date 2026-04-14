@@ -12,6 +12,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Refund, RefundStatus } from "src/refund/entities/refund.entity";
 import { EVENTS } from "src/common/events/events.constants";
+import { KafkaService } from "src/kafka/kafka.service";
 
 @Injectable()
 export class PaymentService {
@@ -32,6 +33,8 @@ export class PaymentService {
     private retryQueue: Queue,
 
     private eventEmitter: EventEmitter2,
+
+    private kafkaService: KafkaService,
   ) {
     this.razorpay = new Razorpay({
       key_id: this.configService.get("RAZORPAY_KEY_ID"),
@@ -125,6 +128,11 @@ export class PaymentService {
     await this.paymentRepo.save(payment);
 
     // await this.orderService.handlePaymentSuccess(order.id, data.id);
+    await this.kafkaService.emit('payment-success', {
+      orderId: payment.order.id,
+      userId: payment.order.userId,
+      paymentId: data.id,
+    });
   
   }catch (error) {
     console.error("Error marking payment success:", error);
@@ -167,7 +175,11 @@ export class PaymentService {
       },
     );
 
-   
+    await this.kafkaService.emit('payment.failed', {
+      orderId: payment.order.id,
+      userId: payment.order.userId,
+      paymentId: data.id,
+    });
   }
 
   // ================= RETRY PAYMENT =================

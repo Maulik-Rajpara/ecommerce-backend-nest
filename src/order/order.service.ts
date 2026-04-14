@@ -147,13 +147,19 @@ export class OrderService {
 
     try {
       const order = await queryRunner.manager.findOne(Order, {
-        where: { id: orderId },
+        where: { razorpayOrderId: orderId },
         relations: ["items", "items.product"],
       });
 
      
 
       if (!order) throw new BadRequestException("Order not found");
+
+      if (order.paymentId) {
+          console.log("⚠️ Payment already processed, skipping...");
+          await queryRunner.commitTransaction(); // important
+          return;
+      }
 
       if (order.status === OrderStatus.PAID) {
         console.log("⚠️ Already paid, skipping");
@@ -215,7 +221,7 @@ export class OrderService {
   // ================= PAYMENT FAILED =================
   async handlePaymentFailed(orderId: string) {
     const order = await this.orderRepo.findOne({
-      where: { id: orderId },
+      where: { razorpayOrderId: orderId },
     });
 
     if (!order) return;
