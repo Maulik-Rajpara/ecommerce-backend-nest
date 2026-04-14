@@ -152,9 +152,12 @@ export class OrderService {
       });
 
      
-
-      if (!order) throw new BadRequestException("Order not found");
-
+     
+      if(!order){
+         console.log("⚠️ Order not found...");
+         return
+      }
+      
       if (order.paymentId) {
           console.log("⚠️ Payment already processed, skipping...");
           await queryRunner.commitTransaction(); // important
