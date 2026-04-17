@@ -44,4 +44,7 @@ export class Refund {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ default: 0 })
+  retryCount: number;
 }

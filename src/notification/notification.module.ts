@@ -5,6 +5,8 @@ import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import { NotifcationGateway } from "../gateway/notification.gateway";
 import { NotificationService } from "./notification.service";
+import { Refund } from "src/refund/entities/refund.entity";
+import { RefundModule } from "src/refund/refund.module";
 
 @Module({
   imports: [
@@ -19,6 +21,7 @@ import { NotificationService } from "./notification.service";
         secret: configService.get<string>("JWT_SECRET"),
       }),
     }),
+    
   ],
   providers: [NotificationService, NotifcationGateway],
   exports: [NotificationService],

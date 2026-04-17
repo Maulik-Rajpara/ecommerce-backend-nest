@@ -8,6 +8,7 @@ import {
 import type { Request } from "express";
 import { PaymentService } from "src/payment/payment.service";
 import { EventStoreService } from "src/event-store/event-store.service";
+import { randomUUID } from "crypto";
 
 @Controller("webhook")
 export class PaymentWebhookController {
@@ -52,7 +53,8 @@ export class PaymentWebhookController {
         throw new BadRequestException("Invalid webhook payload");
       }
 
-      const key = `${event}_${aggregateId}`;
+     
+      const key = `${event}_${aggregateId}}`;
 
       await this.eventStoreService.createEvent({
         type: event,

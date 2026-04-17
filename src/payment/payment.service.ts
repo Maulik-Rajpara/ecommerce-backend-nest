@@ -43,6 +43,9 @@ export class PaymentService {
     @InjectQueue("payment-retry")
     private retryQueue: Queue,
 
+    @InjectQueue("refund-retry")
+    private refundRetryQueue: Queue,
+
     private kafkaService: KafkaService,
   ) {
     this.razorpay = new Razorpay({
@@ -89,13 +92,47 @@ export class PaymentService {
     if (!secret) {
       throw new BadRequestException("Webhook secret is not configured");
     }
-
+    console.log("🔐 Verifying webhook signature with secret:", secret);
+    console.log("🔐 Verifying webhook signature with payload:", payload);
+    console.log("🔐 Verifying webhook signature with signature:", signature);
     const expected = crypto
       .createHmac("sha256", secret)
       .update(payload)
       .digest("hex");
-
+    console.log("🔐 Verifying webhook signature with expected:", expected);
     return expected === signature;
+  }
+
+   // ================= VERIFY CHECKOUT SIGNATURE =================
+  verifyCheckoutSignature(data: any) {
+    const secret = this.configService.get("RAZORPAY_KEY_SECRET");
+
+    const body = `${data.orderId}|${data.paymentId}`;
+
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(body)
+      .digest("hex");
+
+    return expected === data.signature;
+  }
+
+   // ================= SAVE PAYMENT DETAILS =================
+  async savePaymentDetails(data: {
+    orderId: string;
+    paymentId: string;
+    signature: string;
+  }) {
+    const payment = await this.paymentRepo.findOne({
+      where: { razorpayOrderId: data.orderId },
+    });
+
+    if (!payment) return;
+
+    payment.razorpayPaymentId = data.paymentId;
+    payment.razorpaySignature = data.signature;
+
+    await this.paymentRepo.save(payment);
   }
 
   // ================= PAYMENT SUCCESS =================
@@ -195,43 +232,49 @@ export class PaymentService {
 
   // ================= RETRY PAYMENT =================
   async retryPayment(paymentId: string) {
-    const payment = await this.paymentRepo.findOne({
-      where: { id: paymentId },
-      relations: ["order"],
-    });
+    try {
+      const payment = await this.paymentRepo.findOne({
+        where: { id: paymentId },
+        relations: ["order"],
+      });
 
-    if (!payment || !payment.order) return;
+      if (!payment || !payment.order) return;
 
-    const order = await this.orderService.findById(payment.order.id);
+      const order = await this.orderService.findById(payment.order.id);
 
-    // ❗ already paid
-    if (order.status === OrderStatus.PAID) return;
+      // ❗ already paid
+      if (order.status === OrderStatus.PAID) return;
 
-    // ❗ expired
-    if (order.expiresAt && order.expiresAt < new Date()) {
-      await this.orderService.handlePaymentFailed(order.razorpayOrderId);
-      return;
+      // ❗ expired
+      if (order.expiresAt && order.expiresAt < new Date()) {
+        await this.orderService.handlePaymentFailed(order.razorpayOrderId);
+        return;
+      }
+
+      if (order.status !== OrderStatus.PENDING) return;
+
+      const razorpayOrder = await this.razorpay.orders.create({
+        amount: Number(order.totalAmount) * 100,
+        currency: "INR",
+        receipt: order.id,
+      });
+
+      const newPayment = this.paymentRepo.create({
+        order,
+        razorpayOrderId: razorpayOrder.id,
+        amount: order.totalAmount,
+        status: PaymentStatus.PENDING,
+      });
+
+      await this.paymentRepo.save(newPayment);
+
+      await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
+      console.log("success in retryPayment:", razorpayOrder);
+      return razorpayOrder;
+    } catch (err) {
+      console.error("Error in retryPayment:", err);
+      throw err;
     }
-
-    if (order.status !== OrderStatus.PENDING) return;
-
-    const razorpayOrder = await this.razorpay.orders.create({
-      amount: Number(order.totalAmount) * 100,
-      currency: "INR",
-      receipt: order.id,
-    });
-
-    const newPayment = this.paymentRepo.create({
-      order,
-      razorpayOrderId: razorpayOrder.id,
-      amount: order.totalAmount,
-      status: PaymentStatus.PENDING,
-    });
-
-    await this.paymentRepo.save(newPayment);
-
-    await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
-    return razorpayOrder;
   }
 
   // ================= REFUND =================
@@ -297,10 +340,12 @@ export class PaymentService {
       relations: ["payment", "payment.order"],
     });
 
+   
     if (!refund) return;
 
     // ❗ prevent overwrite
     if (refund.status === RefundStatus.SUCCESS) return;
+      console.log("Handling refund success for refundId:", refundId);
 
     refund.status = RefundStatus.SUCCESS;
     await this.refundRepo.save(refund);
@@ -317,6 +362,8 @@ export class PaymentService {
 
     const order = payment.order;
 
+     
+   
     if (total === Number(payment.amount)) {
       await this.orderService.updateOrderState(order.id, OrderStatus.REFUNDED);
     } else {
@@ -325,6 +372,16 @@ export class PaymentService {
         OrderStatus.PARTIALLY_REFUNDED,
       );
     }
+    // console.log("kafka", total);
+
+    await this.kafkaService.emit("refund-success", {
+      orderId: order.id,
+      userId: order.userId,
+    }).catch((err) => {     
+       console.error("Error emitting refund-success event:", err);
+    }).then(() => {
+     // console.log("Emitted refund-success event for orderId:", order.id);
+    });
   }
 
   // ================= REFUND FAILED =================
@@ -338,10 +395,78 @@ export class PaymentService {
 
     if (!refund) return;
 
-    // ❗ don't overwrite success
     if (refund.status === RefundStatus.SUCCESS) return;
 
+    // 🔁 retry limit
+    if (refund.retryCount >= 3) {
+      console.log("❌ Max refund retry reached");
+
+      refund.status = RefundStatus.FAILED;
+      await this.refundRepo.save(refund);
+
+      await this.kafkaService.emit("refund-failed", {
+        refundId: refund.id,
+      });
+
+      return;
+    }
+
+    // 🔥 update retry count
+    refund.retryCount += 1;
     refund.status = RefundStatus.FAILED;
+
     await this.refundRepo.save(refund);
+
+    // 🔁 PUSH TO QUEUE
+    await this.refundRetryQueue.add(
+      "refund-retry",
+      { refundId: refund.id },
+      {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+      },
+    );
+
+    // for user notification (optional, since refund retry is automatic)
+    await this.kafkaService.emit("refund-failed", {
+      refundId: refund.id,
+    });
+  }
+
+  async retryRefund(refundId: string) {
+    const refund = await this.refundRepo.findOne({
+      where: { id: refundId },
+      relations: ["payment"],
+    });
+
+    if (!refund) return;
+
+    if (refund.status === RefundStatus.SUCCESS) return;
+
+    const payment = refund.payment;
+
+    if (!payment?.razorpayPaymentId) return;
+
+    try {
+      const razorpayRefund = await this.razorpay.payments.refund(
+        payment.razorpayPaymentId,
+        {
+          amount: Number(refund.amount) * 100,
+        },
+      );
+
+      // 🔄 update refund
+      refund.razorpayRefundId = razorpayRefund.id;
+      refund.status = RefundStatus.INITIATED;
+
+      await this.refundRepo.save(refund);
+
+      console.log("✅ Refund retry initiated");
+    } catch (err) {
+      console.error("❌ Retry failed again");
+    }
   }
 }

@@ -137,44 +137,80 @@ export class OrderService {
 
   // ================= PAYMENT SUCCESS =================
   async handlePaymentSuccess(razorpayOrderId: string, paymentId: string) {
+    // 🔹 QueryRunner create → manual transaction control
     const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+
+    await queryRunner.connect(); // 🔹 DB connection attach
+    await queryRunner.startTransaction(); // 🔹 BEGIN TRANSACTION
 
     try {
+      // =========================================================
+      // STEP 1: LOCK ONLY ORDER (NO RELATIONS ❗)
+      // =========================================================
       const order = await queryRunner.manager.findOne(Order, {
         where: { razorpayOrderId },
-        relations: ["items", "items.product"],
+
+        // 🔥 CRITICAL: lock only base table
         lock: { mode: "pessimistic_write" },
       });
 
+      // 🔹 if order not found → stop safely
       if (!order) {
+        console.warn("⚠️ Order not found for webhook", {
+          razorpayOrderId,
+        });
         await queryRunner.rollbackTransaction();
         return;
       }
 
+      // =========================================================
+      // STEP 2: IDEMPOTENCY CHECK (VERY IMPORTANT 🔥)
+      // =========================================================
+
+      // 🔹 already processed payment → skip
       if (order.paymentId) {
         console.log("⚠️ Payment already processed, skipping...");
-        await queryRunner.commitTransaction(); // important
+        await queryRunner.commitTransaction(); // release lock
         return;
       }
 
+      // 🔹 already marked paid → skip
       if (order.status === OrderStatus.PAID) {
-        console.log("⚠️ Already paid, skipping");
+        console.warn("⚠️ Already paid (duplicate webhook)", {
+          orderId: order.id,
+        });
         await queryRunner.commitTransaction();
         return;
       }
 
+      // 🔹 validate state transition (business rule)
       validateOrderTransition(order.status, OrderStatus.PAID);
 
-      // ✅ update INSIDE transaction
-      order.status = OrderStatus.PAID;
-      order.paymentId = paymentId;
+      // =========================================================
+      // STEP 3: LOAD RELATIONS SEPARATELY (NO LOCK ❗)
+      // =========================================================
+      const orderWithItems = await queryRunner.manager.findOne(Order, {
+        where: { id: order.id },
+        relations: ["items", "items.product"],
+      });
 
-      await queryRunner.manager.save(order);
+      // =========================================================
+      // STEP 4: UPDATE ORDER
+      // =========================================================
+      order.status = OrderStatus.PAID; // mark paid
+      order.paymentId = paymentId; // store payment id
 
-      // reduce stock
-      for (const item of order.items) {
+      await queryRunner.manager.save(order); // persist changes
+
+      // =========================================================
+      // STEP 5: REDUCE STOCK
+      // =========================================================
+      if (!orderWithItems) {
+        await queryRunner.rollbackTransaction();
+        return;
+      }
+      for (const item of orderWithItems.items) {
+        // 🔹 atomic decrement → no race condition
         await queryRunner.manager.decrement(
           Product,
           { id: item.product.id },
@@ -183,7 +219,9 @@ export class OrderService {
         );
       }
 
-      // clear cart
+      // =========================================================
+      // STEP 6: CLEAR USER CART
+      // =========================================================
       if (order.userId) {
         const cart = await queryRunner.manager.findOne(Cart, {
           where: { user: { id: order.userId } },
@@ -196,10 +234,19 @@ export class OrderService {
         }
       }
 
-      await queryRunner.commitTransaction();
+      // =========================================================
+      // STEP 7: COMMIT TRANSACTION
+      // =========================================================
+      await queryRunner.commitTransaction(); // 🔥 ALL DB SAFE NOW
 
+      // =========================================================
+      // STEP 8: OUTSIDE TRANSACTION SIDE EFFECTS
+      // =========================================================
+
+      // 🔹 fetch user (no lock needed now)
       const user = await this.userService.findBasicById(order.userId);
 
+      // 🔹 send notification (external system)
       await this.notificationService.sendOrderPaid({
         orderId: order.id,
         userId: order.userId,
@@ -207,9 +254,13 @@ export class OrderService {
       });
     } catch (err) {
       console.error("Error in handlePaymentSuccess:", err);
+
+      // 🔹 rollback everything if error
       await queryRunner.rollbackTransaction();
-      throw err;
+
+      return; // ❗ DO NOT THROW → avoids Kafka retry loop
     } finally {
+      // 🔹 always release connection
       await queryRunner.release();
     }
   }
@@ -242,6 +293,7 @@ export class OrderService {
       userId: order.userId,
       email: user?.email,
     });
+    
   }
 
   // ================= EXPIRE ORDER =================

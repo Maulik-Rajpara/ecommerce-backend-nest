@@ -1,4 +1,11 @@
-import { Controller, Post, Req, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Post,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import { PaymentService } from "./payment.service";
 import { OrderService } from "../order/order.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -50,6 +57,41 @@ export class PaymentController {
       };
     } catch (err) {
       console.error("❌ SERVICE ERROR:", err);
+      throw err;
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("verify")
+  async verifyPayment(@Body() body: any) {
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+        body;
+
+      const isValid = this.paymentService.verifyCheckoutSignature({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+
+      if (!isValid) {
+        throw new BadRequestException("Invalid signature");
+      }
+
+      // 🔥 SAVE DATA
+      await this.paymentService.savePaymentDetails({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+
+      return {
+        statusCode: 200,
+        statusMessage: "Signature verified and payment details saved",
+        data: null,
+      };
+    } catch (err) {
+      console.error("❌ verifyPayment ERROR:", err);
       throw err;
     }
   }

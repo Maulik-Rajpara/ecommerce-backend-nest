@@ -49,4 +49,33 @@ export class NotificationService {
       });
     }
   }
+
+  async sendRefundSuccess(data: {
+    orderId: string;
+    userId: string;
+    email?: string;
+  }) {
+
+    console.log("📧 Refund success mail:", data);
+
+     this.gateway.notifyUser(data.userId, {
+      type: "ORDER_PAID",
+      payload: {
+        orderId: data.orderId,
+      },
+    });
+
+    if (data.email) {
+      await this.emailQueue.add("send-email", {
+        email: data.email,
+        subject: "Refund Successful",
+        html: `<h3>Your refund ${data.orderId} is successful</h3>`,
+      });
+    }
+  }
+
+  async sendRefundFailed(data: { refundId: string }) {
+    // no need to notify user for now, since refund failure can be retried automatically
+    console.log("📧 Refund failed mail:", data);
+  }
 }

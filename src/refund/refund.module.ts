@@ -8,14 +8,20 @@ import { Order } from "../order/entities/order.entity";
 import { OrderModule } from "src/order/order.module";
 import { UsersModule } from "src/users/users.module";
 import { User } from "src/users/entities/user.entity";
+import { RefundConsumer } from "src/kafka/consumers/refund.consumer";
+import { NotificationModule } from "src/notification/notification.module";
+import { KafkaModule } from "src/kafka/kafka.module";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Refund, Payment, Order, User]),
     OrderModule,
     UsersModule,
+    NotificationModule,
+    KafkaModule
   ],
   providers: [RefundService],
   controllers: [RefundController],
+  exports: [RefundService],
 })
 export class RefundModule {}

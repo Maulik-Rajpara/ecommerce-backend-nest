@@ -27,6 +27,7 @@ export class EventProcessorService {
       take: 10,
     });
 
+   // console.log(`⏳ Processing ${events} events...`);
     for (const event of events) {
       try {
         event.status = EventStatus.PROCESSING;
@@ -100,7 +101,8 @@ export class EventProcessorService {
         break;
 
       default:
-        throw new Error(`Unknown event type: ${event.type}`);
+        console.log(`⚠️ Unhandled event type: ${event.type}`);
+        //throw new Error(`Unknown event type: ${event.type}`);
     }
   }
 

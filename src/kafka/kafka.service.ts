@@ -10,7 +10,7 @@ export class KafkaService implements OnModuleInit {
     //this.kafka.subscribeToResponseOf("payment-success");
     await this.kafka.connect();
     console.log("📥 Kafka connect");
-    await new Promise((res) => setTimeout(res, 3000));
+   // await new Promise((res) => setTimeout(res, 3000));
   }
 
   async emit(topic: string, message: Record<string, unknown>) {
@@ -18,7 +18,7 @@ export class KafkaService implements OnModuleInit {
       await lastValueFrom(this.kafka.emit(topic, message));
     } catch {
       console.log("Kafka retry...");
-      await new Promise((res) => setTimeout(res, 2000));
+      // await new Promise((res) => setTimeout(res, 2000));
       await lastValueFrom(this.kafka.emit(topic, message));
     }
   }

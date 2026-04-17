@@ -94,8 +94,11 @@ export class CartService {
         await queryRunner.manager.save(cart);
       }
 
+      const cartItemsCount = cart?.items?.length || 0;
+     
       // 🧠 cart size limit
-      if (cart.items.length >= this.MAX_CART_ITEMS) {
+      
+      if (cartItemsCount>= this.MAX_CART_ITEMS) {
         throw new BadRequestException("Cart limit exceeded");
       }
 
@@ -170,19 +173,30 @@ export class CartService {
     await queryRunner.startTransaction();
 
     try {
-      const item = await queryRunner.manager.findOne(CartItem, {
-        where: {
-          id: itemId,
-          cart: { user: { id: userId } },
-        },
-        relations: ["product"],
-        lock: { mode: "pessimistic_write" },
+
+      // STEP 1 — lock base row
+        const item = await queryRunner.manager
+          .createQueryBuilder(CartItem, 'cartItem')
+          .where('cartItem.id = :id', { id: itemId })
+          .setLock('pessimistic_write')
+          .getOne();
+
+        if (!item) {
+          throw new BadRequestException("Cart item not found");
+        }
+
+      // STEP 2 — load relations PROPERLY
+      const itemWithRelations = await queryRunner.manager.findOne(CartItem, {
+        where: { id: itemId, cart: { user: { id: userId } } },
+        relations: ['product', 'cart', 'cart.user'],
       });
 
-      if (!item) {
-        throw new BadRequestException("Cart item not found");
+      if (!itemWithRelations || !itemWithRelations.product) {
+        throw new BadRequestException("Product not found");
       }
 
+       
+     
       // 🧠 quantity = 0 → delete
       if (dto.quantity === 0) {
         await queryRunner.manager.remove(item);
@@ -196,7 +210,8 @@ export class CartService {
         };
       }
 
-      if (dto.quantity > item.product.stock) {
+      
+      if (dto.quantity > itemWithRelations.product.stock) {
         throw new BadRequestException("Insufficient stock");
       }
 
@@ -217,6 +232,7 @@ export class CartService {
       };
     } catch (err) {
       await queryRunner.rollbackTransaction();
+      console.error("update cart error ", err);
       throw err;
     } finally {
       await queryRunner.release();

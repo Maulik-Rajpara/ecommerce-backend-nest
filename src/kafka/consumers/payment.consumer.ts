@@ -14,7 +14,10 @@ interface KafkaPayloadEnvelope {
 
 @Controller()
 export class PaymentConsumer {
-  constructor(private readonly orderService: OrderService) {}
+  
+  constructor(private readonly orderService: OrderService) {
+    console.log("PaymentConsumer initialized");
+  }
 
   private parsePayload(message: unknown): PaymentSuccessEvent {
     if (

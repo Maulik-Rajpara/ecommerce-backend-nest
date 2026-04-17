@@ -122,7 +122,7 @@ export class RefundService {
         );
       }
 
-      console.log("💰 Processing refund for payment:", payment.id);
+      console.log("💰 Processing refund for payment:", payment);
 
       // 🔥 RAZORPAY REFUND CALL
       const razorpayRefund = await this.razorpay.payments.refund(
@@ -138,7 +138,7 @@ export class RefundService {
         paymentId: payment.id,
         amount: refundAmount,
         razorpayRefundId: razorpayRefund.id,
-        status: RefundStatus.SUCCESS,
+        status: RefundStatus.INITIATED,
         idempotencyKey,
       });
 
