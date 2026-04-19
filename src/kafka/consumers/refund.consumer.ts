@@ -2,6 +2,17 @@ import { Controller, Logger } from "@nestjs/common";
 import { EventPattern, Payload } from "@nestjs/microservices";
 import { NotificationService } from "src/notification/notification.service";
 import { UsersService } from "src/users/users.service";
+import { KAFKA_TOPICS } from "../kafka-topics.constants";
+
+interface RefundSuccessEvent {
+  orderId: string;
+  userId: string;
+}
+
+interface RefundFailedEvent {
+  refundId: string;
+  userId?: string;
+}
 
 @Controller()
 export class RefundConsumer {
@@ -13,11 +24,10 @@ export class RefundConsumer {
   ) {
     console.log("RefundConsumer initialized");
   }
-  
 
   // ================= REFUND SUCCESS =================
-  @EventPattern("refund-success")
-  async handleRefundSuccess(@Payload() data: any) {
+  @EventPattern(KAFKA_TOPICS.REFUND_SUCCESS)
+  async handleRefundSuccess(@Payload() data: RefundSuccessEvent) {
     try {
       this.logger.log("📩 refund-success event received");
 
@@ -39,16 +49,17 @@ export class RefundConsumer {
   }
 
   // ================= REFUND FAILED =================
-  @EventPattern("refund-failed")
-  async handleRefundFailed(@Payload() data: any) {
+  @EventPattern(KAFKA_TOPICS.REFUND_FAILED)
+  async handleRefundFailed(@Payload() data: RefundFailedEvent) {
     try {
       this.logger.log("📩 refund-failed event received");
 
-      const { refundId } = data;
+      const { refundId, userId } = data;
+      const user = userId ? await this.userService.findBasicById(userId) : null;
 
-      // 🔥 optional: notify user
       await this.notificationService.sendRefundFailed({
         refundId,
+        email: user?.email,
       });
 
       this.logger.log("⚠️ Refund failed notification sent");

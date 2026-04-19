@@ -17,17 +17,18 @@ import { UsersModule } from "src/users/users.module";
 import { User } from "src/users/entities/user.entity";
 import { NotificationModule } from "src/notification/notification.module";
 import { KafkaModule } from "src/kafka/kafka.module";
+import { QUEUES } from "src/async/async.constants";
 //import { PaymentListener } from 'src/common/events/listeners/payment.listener';
 
 @Module({
   imports: [
     BullModule.registerQueue({
-      name: "order-expiry",
+      name: QUEUES.ORDER_EXPIRY,
     }),
     TypeOrmModule.forFeature([Order, OrderItem, Cart, CartItem, Product, User]),
     UsersModule,
     NotificationModule,
-    KafkaModule
+    KafkaModule,
   ],
   controllers: [OrderController],
   providers: [OrderService, OrderCronService, OrderExpiryProcessor],

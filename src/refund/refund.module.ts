@@ -18,7 +18,7 @@ import { KafkaModule } from "src/kafka/kafka.module";
     OrderModule,
     UsersModule,
     NotificationModule,
-    KafkaModule
+    KafkaModule,
   ],
   providers: [RefundService],
   controllers: [RefundController],

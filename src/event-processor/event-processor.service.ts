@@ -5,7 +5,7 @@ import {
   EventStore,
 } from "src/event-store/entities/event-store.entity";
 import { PaymentService } from "src/payment/payment.service";
-import { LessThanOrEqual, Repository } from "typeorm";
+import { Brackets, DataSource, Repository } from "typeorm";
 
 @Injectable()
 export class EventProcessorService {
@@ -13,26 +13,14 @@ export class EventProcessorService {
     @InjectRepository(EventStore)
     private eventRepo: Repository<EventStore>,
     private paymentService: PaymentService,
+    private dataSource: DataSource,
   ) {}
 
   async processEvents() {
-    const events = await this.eventRepo.find({
-      where: [
-        { status: EventStatus.PENDING },
-        {
-          status: EventStatus.FAILED,
-          nextRetryAt: LessThanOrEqual(new Date()),
-        },
-      ],
-      take: 10,
-    });
+    const events = await this.claimEvents(10);
 
-   // console.log(`⏳ Processing ${events} events...`);
     for (const event of events) {
       try {
-        event.status = EventStatus.PROCESSING;
-        await this.eventRepo.save(event);
-
         if (event.retryCount >= 3) {
           event.status = EventStatus.DEAD;
 
@@ -57,6 +45,47 @@ export class EventProcessorService {
         await this.eventRepo.save(event);
       }
     }
+  }
+
+  private async claimEvents(limit: number): Promise<EventStore[]> {
+    return this.dataSource.transaction(async (manager) => {
+      const now = new Date();
+      const repo = manager.getRepository(EventStore);
+      const events = await repo
+        .createQueryBuilder("event")
+        .where(
+          new Brackets((qb) => {
+            qb.where("event.status = :pending", {
+              pending: EventStatus.PENDING,
+            }).orWhere("event.status = :failed AND event.nextRetryAt <= :now", {
+              failed: EventStatus.FAILED,
+              now,
+            });
+          }),
+        )
+        .orderBy("event.createdAt", "ASC")
+        .limit(limit)
+        .setLock("pessimistic_write")
+        .setOnLocked("skip_locked")
+        .getMany();
+
+      if (!events.length) {
+        return [];
+      }
+
+      const eventIds = events.map((event) => event.id);
+      await repo
+        .createQueryBuilder()
+        .update(EventStore)
+        .set({ status: EventStatus.PROCESSING })
+        .whereInIds(eventIds)
+        .execute();
+
+      return events.map((event) => ({
+        ...event,
+        status: EventStatus.PROCESSING,
+      }));
+    });
   }
 
   async handleEvent(event: EventStore) {
@@ -102,7 +131,7 @@ export class EventProcessorService {
 
       default:
         console.log(`⚠️ Unhandled event type: ${event.type}`);
-        //throw new Error(`Unknown event type: ${event.type}`);
+      //throw new Error(`Unknown event type: ${event.type}`);
     }
   }
 

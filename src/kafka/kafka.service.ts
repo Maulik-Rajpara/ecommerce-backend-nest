@@ -10,7 +10,7 @@ export class KafkaService implements OnModuleInit {
     //this.kafka.subscribeToResponseOf("payment-success");
     await this.kafka.connect();
     console.log("📥 Kafka connect");
-   // await new Promise((res) => setTimeout(res, 3000));
+    // await new Promise((res) => setTimeout(res, 3000));
   }
 
   async emit(topic: string, message: Record<string, unknown>) {

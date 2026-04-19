@@ -11,6 +11,7 @@ import { getQueueToken } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import * as express from "express";
 import { Transport } from "@nestjs/microservices";
+import { QUEUES } from "./async/async.constants";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -33,11 +34,19 @@ async function bootstrap() {
   serverAdapter.setBasePath("/admin/queues");
 
   // 🔥 get queue instance
-  const emailQueue = app.get<Queue>(getQueueToken("email"));
+  const emailQueue = app.get<Queue>(getQueueToken(QUEUES.EMAIL));
+  const orderExpiryQueue = app.get<Queue>(getQueueToken(QUEUES.ORDER_EXPIRY));
+  const paymentRetryQueue = app.get<Queue>(getQueueToken(QUEUES.PAYMENT_RETRY));
+  const refundRetryQueue = app.get<Queue>(getQueueToken(QUEUES.REFUND_RETRY));
 
   // 🔥 setup bull board
   createBullBoard({
-    queues: [new BullMQAdapter(emailQueue)],
+    queues: [
+      new BullMQAdapter(emailQueue),
+      new BullMQAdapter(orderExpiryQueue),
+      new BullMQAdapter(paymentRetryQueue),
+      new BullMQAdapter(refundRetryQueue),
+    ],
     serverAdapter,
   });
 
@@ -54,11 +63,12 @@ async function bootstrap() {
     transport: Transport.KAFKA,
     options: {
       client: {
-        clientId: "ecommerce",
-        brokers: ["localhost:9092"],
+        clientId: process.env.KAFKA_CLIENT_ID ?? "ecommerce",
+        brokers: (process.env.KAFKA_BROKERS ?? "localhost:9092").split(","),
       },
       consumer: {
-        groupId: "ecommerce-consumer-client-v2",
+        groupId:
+          process.env.KAFKA_CONSUMER_GROUP ?? "ecommerce-consumer-client-v2",
       },
     },
   });

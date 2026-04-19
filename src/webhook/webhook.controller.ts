@@ -8,7 +8,6 @@ import {
 import type { Request } from "express";
 import { PaymentService } from "src/payment/payment.service";
 import { EventStoreService } from "src/event-store/event-store.service";
-import { randomUUID } from "crypto";
 
 @Controller("webhook")
 export class PaymentWebhookController {
@@ -21,6 +20,7 @@ export class PaymentWebhookController {
   async handleWebhook(
     @Req() req: Request,
     @Headers("x-razorpay-signature") signature?: string,
+    @Headers("x-razorpay-event-id") webhookEventId?: string,
   ) {
     try {
       if (!signature) {
@@ -53,8 +53,7 @@ export class PaymentWebhookController {
         throw new BadRequestException("Invalid webhook payload");
       }
 
-     
-      const key = `${event}_${aggregateId}}`;
+      const key = webhookEventId ?? `${event}_${aggregateId}`;
 
       await this.eventStoreService.createEvent({
         type: event,

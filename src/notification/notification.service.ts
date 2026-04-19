@@ -2,6 +2,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { NotifcationGateway } from "src/gateway/notification.gateway";
+import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
 
 interface OrderNotificationPayload {
   orderId: string;
@@ -13,7 +14,7 @@ interface OrderNotificationPayload {
 export class NotificationService {
   constructor(
     private gateway: NotifcationGateway,
-    @InjectQueue("email") private emailQueue: Queue,
+    @InjectQueue(QUEUES.EMAIL) private emailQueue: Queue,
   ) {}
 
   async sendOrderPaid(payload: OrderNotificationPayload) {
@@ -25,11 +26,15 @@ export class NotificationService {
     });
 
     if (payload.email) {
-      await this.emailQueue.add("send-email", {
-        email: payload.email,
-        subject: "Order Paid",
-        html: `<h3>Your order ${payload.orderId} is successful</h3>`,
-      });
+      await this.emailQueue.add(
+        JOBS.EMAIL_SEND,
+        {
+          email: payload.email,
+          subject: "Order Paid",
+          html: `<h3>Your order ${payload.orderId} is successful</h3>`,
+        },
+        RETRY_OPTIONS.EMAIL,
+      );
     }
   }
 
@@ -42,11 +47,15 @@ export class NotificationService {
     });
 
     if (payload.email) {
-      await this.emailQueue.add("send-email", {
-        email: payload.email,
-        subject: "Order Cancelled",
-        html: `<h3>Your order ${payload.orderId} has been cancelled</h3>`,
-      });
+      await this.emailQueue.add(
+        JOBS.EMAIL_SEND,
+        {
+          email: payload.email,
+          subject: "Order Cancelled",
+          html: `<h3>Your order ${payload.orderId} has been cancelled</h3>`,
+        },
+        RETRY_OPTIONS.EMAIL,
+      );
     }
   }
 
@@ -55,10 +64,9 @@ export class NotificationService {
     userId: string;
     email?: string;
   }) {
-
     console.log("📧 Refund success mail:", data);
 
-     this.gateway.notifyUser(data.userId, {
+    this.gateway.notifyUser(data.userId, {
       type: "ORDER_PAID",
       payload: {
         orderId: data.orderId,
@@ -66,16 +74,52 @@ export class NotificationService {
     });
 
     if (data.email) {
-      await this.emailQueue.add("send-email", {
-        email: data.email,
-        subject: "Refund Successful",
-        html: `<h3>Your refund ${data.orderId} is successful</h3>`,
-      });
+      await this.emailQueue.add(
+        JOBS.EMAIL_SEND,
+        {
+          email: data.email,
+          subject: "Refund Successful",
+          html: `<h3>Your refund ${data.orderId} is successful</h3>`,
+        },
+        RETRY_OPTIONS.EMAIL,
+      );
     }
   }
 
-  async sendRefundFailed(data: { refundId: string }) {
-    // no need to notify user for now, since refund failure can be retried automatically
-    console.log("📧 Refund failed mail:", data);
+  async sendRefundFailed(data: { refundId: string; email?: string }) {
+    if (!data.email) return;
+    await this.emailQueue.add(
+      JOBS.EMAIL_SEND,
+      {
+        email: data.email,
+        subject: "Refund Processing Delayed",
+        html: `<h3>Refund ${data.refundId} is delayed. Our system will keep retrying automatically.</h3>`,
+      },
+      RETRY_OPTIONS.EMAIL,
+    );
+  }
+
+  async sendPaymentFailed(data: {
+    orderId: string;
+    userId: string;
+    email?: string;
+  }) {
+    this.gateway.notifyUser(data.userId, {
+      type: "PAYMENT_FAILED",
+      payload: {
+        orderId: data.orderId,
+      },
+    });
+
+    if (!data.email) return;
+    await this.emailQueue.add(
+      JOBS.EMAIL_SEND,
+      {
+        email: data.email,
+        subject: "Payment Failed - Order Cancelled",
+        html: `<h3>Your payment for order ${data.orderId} failed and the order was cancelled.</h3>`,
+      },
+      RETRY_OPTIONS.EMAIL,
+    );
   }
 }

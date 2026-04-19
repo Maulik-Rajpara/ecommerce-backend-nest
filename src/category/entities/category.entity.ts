@@ -23,7 +23,7 @@ export class Category {
   @Column({ unique: true })
   slug: string;
 
-  @Column({  type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   image: string | null;
 
   @ManyToOne(() => Category, (category) => category.children, {

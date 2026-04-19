@@ -2,6 +2,7 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Job } from "bullmq";
 import { EmailService } from "./email.service";
+import { QUEUES } from "src/async/async.constants";
 
 interface EmailJobData {
   email: string;
@@ -9,7 +10,7 @@ interface EmailJobData {
   html: string;
 }
 
-@Processor("email")
+@Processor(QUEUES.EMAIL)
 export class EmailProcessor extends WorkerHost {
   constructor(private emailService: EmailService) {
     super();

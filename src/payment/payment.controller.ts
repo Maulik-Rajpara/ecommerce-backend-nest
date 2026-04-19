@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -94,6 +95,12 @@ export class PaymentController {
       console.error("❌ verifyPayment ERROR:", err);
       throw err;
     }
+  }
+
+   @UseGuards(JwtAuthGuard)
+  @Post("retry/:orderId")
+  async retryPayment(@Param("orderId") orderId: string) {
+    return this.paymentService.retryFromFrontend(orderId);
   }
 
   // ================= WEBHOOK =================

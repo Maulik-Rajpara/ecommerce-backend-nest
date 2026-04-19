@@ -5,14 +5,13 @@ import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import { NotifcationGateway } from "../gateway/notification.gateway";
 import { NotificationService } from "./notification.service";
-import { Refund } from "src/refund/entities/refund.entity";
-import { RefundModule } from "src/refund/refund.module";
+import { QUEUES } from "src/async/async.constants";
 
 @Module({
   imports: [
     ConfigModule,
     BullModule.registerQueue({
-      name: "email",
+      name: QUEUES.EMAIL,
     }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -21,7 +20,6 @@ import { RefundModule } from "src/refund/refund.module";
         secret: configService.get<string>("JWT_SECRET"),
       }),
     }),
-    
   ],
   providers: [NotificationService, NotifcationGateway],
   exports: [NotificationService],

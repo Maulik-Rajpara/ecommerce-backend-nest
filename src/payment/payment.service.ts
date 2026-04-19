@@ -11,6 +11,8 @@ import { Queue } from "bullmq";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Refund, RefundStatus } from "src/refund/entities/refund.entity";
 import { KafkaService } from "src/kafka/kafka.service";
+import { KAFKA_TOPICS } from "src/kafka/kafka-topics.constants";
+import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
 
 interface RazorpayPaymentEvent {
   id: string;
@@ -23,6 +25,12 @@ interface RazorpayRefundPayload {
       id?: string;
     };
   };
+}
+
+interface CheckoutSignatureInput {
+  orderId: string;
+  paymentId: string;
+  signature: string;
 }
 
 @Injectable()
@@ -40,10 +48,10 @@ export class PaymentService {
 
     private orderService: OrderService,
 
-    @InjectQueue("payment-retry")
+    @InjectQueue(QUEUES.PAYMENT_RETRY)
     private retryQueue: Queue,
 
-    @InjectQueue("refund-retry")
+    @InjectQueue(QUEUES.REFUND_RETRY)
     private refundRetryQueue: Queue,
 
     private kafkaService: KafkaService,
@@ -92,19 +100,15 @@ export class PaymentService {
     if (!secret) {
       throw new BadRequestException("Webhook secret is not configured");
     }
-    console.log("🔐 Verifying webhook signature with secret:", secret);
-    console.log("🔐 Verifying webhook signature with payload:", payload);
-    console.log("🔐 Verifying webhook signature with signature:", signature);
     const expected = crypto
       .createHmac("sha256", secret)
       .update(payload)
       .digest("hex");
-    console.log("🔐 Verifying webhook signature with expected:", expected);
     return expected === signature;
   }
 
-   // ================= VERIFY CHECKOUT SIGNATURE =================
-  verifyCheckoutSignature(data: any) {
+  // ================= VERIFY CHECKOUT SIGNATURE =================
+  verifyCheckoutSignature(data: CheckoutSignatureInput) {
     const secret = this.configService.get("RAZORPAY_KEY_SECRET");
 
     const body = `${data.orderId}|${data.paymentId}`;
@@ -117,7 +121,7 @@ export class PaymentService {
     return expected === data.signature;
   }
 
-   // ================= SAVE PAYMENT DETAILS =================
+  // ================= SAVE PAYMENT DETAILS =================
   async savePaymentDetails(data: {
     orderId: string;
     paymentId: string;
@@ -177,7 +181,7 @@ export class PaymentService {
 
       await this.paymentRepo.save(payment);
 
-      await this.kafkaService.emit("payment-success", {
+      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_SUCCESS, {
         razorpayOrderId: data.order_id,
         paymentId: data.id,
       });
@@ -213,16 +217,26 @@ export class PaymentService {
 
     if (order.expiresAt && order.expiresAt < new Date()) {
       await this.orderService.handlePaymentFailed(data.order_id);
+      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+        orderId: order.id,
+        userId: order.userId,
+        reason: "order-expired",
+      });
       return;
     }
 
     if (nextRetryCount >= 3) {
       await this.orderService.handlePaymentFailed(data.order_id);
+      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+        orderId: order.id,
+        userId: order.userId,
+        reason: "retry-limit-reached",
+      });
       return;
     }
 
     await this.retryQueue.add(
-      "retry-payment",
+      JOBS.PAYMENT_RETRY,
       { paymentId: payment.id },
       {
         jobId: payment.id, // 🔥 UNIQUE
@@ -248,6 +262,11 @@ export class PaymentService {
       // ❗ expired
       if (order.expiresAt && order.expiresAt < new Date()) {
         await this.orderService.handlePaymentFailed(order.razorpayOrderId);
+        await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+          orderId: order.id,
+          userId: order.userId,
+          reason: "order-expired-during-retry",
+        });
         return;
       }
 
@@ -340,12 +359,12 @@ export class PaymentService {
       relations: ["payment", "payment.order"],
     });
 
-   
     if (!refund) return;
+    if (!refund.payment?.order) return;
 
     // ❗ prevent overwrite
     if (refund.status === RefundStatus.SUCCESS) return;
-      console.log("Handling refund success for refundId:", refundId);
+    console.log("Handling refund success for refundId:", refundId);
 
     refund.status = RefundStatus.SUCCESS;
     await this.refundRepo.save(refund);
@@ -362,8 +381,6 @@ export class PaymentService {
 
     const order = payment.order;
 
-     
-   
     if (total === Number(payment.amount)) {
       await this.orderService.updateOrderState(order.id, OrderStatus.REFUNDED);
     } else {
@@ -374,14 +391,17 @@ export class PaymentService {
     }
     // console.log("kafka", total);
 
-    await this.kafkaService.emit("refund-success", {
-      orderId: order.id,
-      userId: order.userId,
-    }).catch((err) => {     
-       console.error("Error emitting refund-success event:", err);
-    }).then(() => {
-     // console.log("Emitted refund-success event for orderId:", order.id);
-    });
+    await this.kafkaService
+      .emit(KAFKA_TOPICS.REFUND_SUCCESS, {
+        orderId: order.id,
+        userId: order.userId,
+      })
+      .catch((err) => {
+        console.error("Error emitting refund-success event:", err);
+      })
+      .then(() => {
+        // console.log("Emitted refund-success event for orderId:", order.id);
+      });
   }
 
   // ================= REFUND FAILED =================
@@ -391,6 +411,7 @@ export class PaymentService {
 
     const refund = await this.refundRepo.findOne({
       where: { razorpayRefundId: refundId },
+      relations: ["payment", "payment.order"],
     });
 
     if (!refund) return;
@@ -404,8 +425,10 @@ export class PaymentService {
       refund.status = RefundStatus.FAILED;
       await this.refundRepo.save(refund);
 
-      await this.kafkaService.emit("refund-failed", {
+      await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
         refundId: refund.id,
+        orderId: refund.payment.order.id,
+        userId: refund.payment.order.userId,
       });
 
       return;
@@ -419,20 +442,16 @@ export class PaymentService {
 
     // 🔁 PUSH TO QUEUE
     await this.refundRetryQueue.add(
-      "refund-retry",
+      JOBS.REFUND_RETRY,
       { refundId: refund.id },
-      {
-        attempts: 3,
-        backoff: {
-          type: "exponential",
-          delay: 5000,
-        },
-      },
+      RETRY_OPTIONS.REFUND_RETRY,
     );
 
     // for user notification (optional, since refund retry is automatic)
-    await this.kafkaService.emit("refund-failed", {
+    await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
       refundId: refund.id,
+      orderId: refund.payment.order.id,
+      userId: refund.payment.order.userId,
     });
   }
 
@@ -465,8 +484,56 @@ export class PaymentService {
       await this.refundRepo.save(refund);
 
       console.log("✅ Refund retry initiated");
-    } catch (err) {
+    } catch {
       console.error("❌ Retry failed again");
     }
   }
+
+  /// Retry From Frontend ///
+  async retryFromFrontend(orderId: string) {
+    try{
+
+      const order = await this.orderService.findById(orderId);
+
+      if (!order) throw new BadRequestException("Order not found");
+
+      // ❗ already paid
+      if (order.status === OrderStatus.PAID) {
+        throw new BadRequestException("Already paid");
+      }
+
+      // ❗ expired
+      if (order.expiresAt && order.expiresAt < new Date()) {
+        throw new BadRequestException("Order expired");
+      }
+
+      // 🔁 increment retry
+      await this.orderService.incrementRetryCount(order.id);
+
+      if (order.retryCount >= 3) {
+        await this.orderService.updateOrderState(order.id, OrderStatus.CANCELLED);
+
+        return {
+          message: "Max retries reached. Order cancelled",
+        };
+      }
+
+      // 🔥 CREATE NEW RAZORPAY ORDER
+      const razorpayOrder = await this.razorpay.orders.create({
+        amount: Number(order.totalAmount) * 100,
+        currency: "INR",
+        receipt: order.id,
+      });
+
+      await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
+
+      return razorpayOrder;
+    
+
+    }catch (err) {
+        console.error("Error in retryFromFrontend:", err);
+        throw err;  
+    }
+  }
+    
 }

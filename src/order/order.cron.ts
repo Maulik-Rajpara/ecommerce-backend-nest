@@ -3,7 +3,8 @@ import { Cron } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { LessThan, Repository } from "typeorm";
 import { Order, OrderStatus } from "./entities/order.entity";
-import { KafkaService } from "src/kafka/kafka.service";
+import { OrderService } from "./order.service";
+import { CRON_SCHEDULES } from "src/async/async.constants";
 
 @Injectable()
 export class OrderCronService {
@@ -12,11 +13,11 @@ export class OrderCronService {
   constructor(
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
-    private kafkaService: KafkaService,
+    private orderService: OrderService,
   ) {}
 
   // ⏰ runs every 15 minutes
-  @Cron("0 */15 * * * *")
+  @Cron(CRON_SCHEDULES.ORDER_EXPIRY_SWEEP)
   async handleOrderExpiry() {
     this.logger.log("⏳ Checking expired orders...");
 
@@ -31,24 +32,9 @@ export class OrderCronService {
 
       if (!expiredOrders.length) return;
 
-      // 2️⃣ extract ids
-      const orderIds = expiredOrders.map((o) => o.id);
-
-      // 3️⃣ bulk update
-      await this.orderRepo
-        .createQueryBuilder()
-        .update(Order)
-        .set({ status: OrderStatus.CANCELLED })
-        .whereInIds(orderIds)
-        .execute();
-
+      // Use the same expire flow as queue worker to keep side effects consistent.
       await Promise.all(
-        expiredOrders.map((order) =>
-          this.kafkaService.emit("order-expired", {
-            orderId: order.id,
-            userId: order.userId,
-          }),
-        ),
+        expiredOrders.map((order) => this.orderService.expireOrder(order.id)),
       );
 
       this.logger.log({

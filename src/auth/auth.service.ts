@@ -14,13 +14,14 @@ import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { PinoLogger } from "nestjs-pino";
+import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
     private logger: PinoLogger,
-    @InjectQueue("email") private emailQueue: Queue,
+    @InjectQueue(QUEUES.EMAIL) private emailQueue: Queue,
   ) {}
 
   async login(loginDto: LoginDto) {
@@ -105,7 +106,7 @@ export class AuthService {
       this.logger.info({ email }, "Queueing password reset email");
 
       await this.emailQueue.add(
-        "send-reset-email",
+        JOBS.EMAIL_RESET_PASSWORD,
         {
           email,
           subject: "Reset Your Password",
@@ -115,13 +116,7 @@ export class AuthService {
         <p>This link will expire in 15 minutes</p>
       `,
         },
-        {
-          attempts: 3,
-          backoff: {
-            type: "exponential",
-            delay: 5000,
-          },
-        },
+        RETRY_OPTIONS.EMAIL,
       );
     }
 

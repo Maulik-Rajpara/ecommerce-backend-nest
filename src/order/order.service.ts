@@ -11,11 +11,14 @@ import { CartItem } from "../cart/entities/cart-item.entity";
 
 import { Queue } from "bullmq";
 import { InjectQueue } from "@nestjs/bullmq";
+import { JOBS, QUEUES } from "src/async/async.constants";
 
 import { validateOrderTransition } from "./state/order.state.validate";
 
 import { UsersService } from "src/users/users.service";
 import { NotificationService } from "src/notification/notification.service";
+import { KafkaService } from "src/kafka/kafka.service";
+import { KAFKA_TOPICS } from "src/kafka/kafka-topics.constants";
 
 @Injectable()
 export class OrderService {
@@ -34,10 +37,11 @@ export class OrderService {
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
 
-    @InjectQueue("order-expiry") private orderQueue: Queue,
+    @InjectQueue(QUEUES.ORDER_EXPIRY) private orderQueue: Queue,
 
     private userService: UsersService,
     private notificationService: NotificationService,
+    private kafkaService: KafkaService,
   ) {}
 
   // ================= CREATE ORDER =================
@@ -117,7 +121,7 @@ export class OrderService {
 
       // async job
       await this.orderQueue.add(
-        "order-expiry",
+        JOBS.ORDER_EXPIRE,
         { orderId: order.id },
         { delay: 15 * 60 * 1000 },
       );
@@ -287,13 +291,6 @@ export class OrderService {
 
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
-    const user = await this.userService.findBasicById(order.userId);
-    await this.notificationService.sendOrderCancelled({
-      orderId: order.id,
-      userId: order.userId,
-      email: user?.email,
-    });
-    
   }
 
   // ================= EXPIRE ORDER =================
@@ -308,6 +305,10 @@ export class OrderService {
 
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
+    await this.kafkaService.emit(KAFKA_TOPICS.ORDER_EXPIRED, {
+      orderId: order.id,
+      userId: order.userId,
+    });
   }
 
   // ================= GENERIC =================
