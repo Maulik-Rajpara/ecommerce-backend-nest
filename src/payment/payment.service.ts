@@ -128,15 +128,25 @@ export class PaymentService {
     signature: string;
   }) {
     const payment = await this.paymentRepo.findOne({
+      where: { razorpayOrderId: data.paymentId },
+    });
+
+    if (payment) {
+      payment.razorpaySignature = data.signature;
+      await this.paymentRepo.save(payment);
+      return;
+    }
+   
+    const orderPayment = await this.paymentRepo.findOne({
       where: { razorpayOrderId: data.orderId },
     });
 
-    if (!payment) return;
+    if (!orderPayment) return;
 
-    payment.razorpayPaymentId = data.paymentId;
-    payment.razorpaySignature = data.signature;
+    orderPayment.razorpayPaymentId = data.paymentId;
+    orderPayment.razorpaySignature = data.signature;
 
-    await this.paymentRepo.save(payment);
+    await this.paymentRepo.save(orderPayment);
   }
 
   // ================= PAYMENT SUCCESS =================
@@ -491,8 +501,7 @@ export class PaymentService {
 
   /// Retry From Frontend ///
   async retryFromFrontend(orderId: string) {
-    try{
-
+    try {
       const order = await this.orderService.findById(orderId);
 
       if (!order) throw new BadRequestException("Order not found");
@@ -511,7 +520,10 @@ export class PaymentService {
       await this.orderService.incrementRetryCount(order.id);
 
       if (order.retryCount >= 3) {
-        await this.orderService.updateOrderState(order.id, OrderStatus.CANCELLED);
+        await this.orderService.updateOrderState(
+          order.id,
+          OrderStatus.CANCELLED,
+        );
 
         return {
           message: "Max retries reached. Order cancelled",
@@ -528,12 +540,9 @@ export class PaymentService {
       await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
 
       return razorpayOrder;
-    
-
-    }catch (err) {
-        console.error("Error in retryFromFrontend:", err);
-        throw err;  
+    } catch (err) {
+      console.error("Error in retryFromFrontend:", err);
+      throw err;
     }
   }
-    
 }
