@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import Razorpay from "razorpay";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -10,6 +10,7 @@ import { OrderService } from "src/order/order.service";
 
 @Injectable()
 export class RefundService {
+  private readonly logger = new Logger(RefundService.name);
   private razorpay: Razorpay;
 
   constructor(
@@ -55,7 +56,7 @@ export class RefundService {
       });
 
       if (existing) {
-        console.log("⚠️ Duplicate refund request detected");
+        this.logger.warn(`Duplicate refund request detected for key: ${idempotencyKey}`);
         return {
           statusCode: 200,
           message: "Duplicate request - returning existing refund",
@@ -122,7 +123,7 @@ export class RefundService {
         );
       }
 
-      console.log("💰 Processing refund for payment:", payment);
+      this.logger.log(`Processing refund for paymentId: ${payment.id}, amount: ${refundAmount}`);
 
       // 🔥 RAZORPAY REFUND CALL
       const razorpayRefund = await this.razorpay.payments.refund(
@@ -175,7 +176,7 @@ export class RefundService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown refund error";
-      console.error("❌ Refund creation failed:", error);
+      this.logger.error("Refund creation failed", error instanceof Error ? error.stack : error);
       throw new BadRequestException("Refund creation failed: " + message);
     }
   }

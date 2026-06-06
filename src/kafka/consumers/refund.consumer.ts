@@ -21,9 +21,7 @@ export class RefundConsumer {
   constructor(
     private readonly notificationService: NotificationService,
     private readonly userService: UsersService,
-  ) {
-    console.log("RefundConsumer initialized");
-  }
+  ) {}
 
   // ================= REFUND SUCCESS =================
   @EventPattern(KAFKA_TOPICS.REFUND_SUCCESS)

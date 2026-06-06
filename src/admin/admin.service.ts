@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between, FindOptionsWhere } from "typeorm";
 import { Order, OrderStatus } from "../order/entities/order.entity";
@@ -7,6 +7,8 @@ import { validateOrderTransition } from "../order/state/order.state.validate";
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
@@ -56,7 +58,7 @@ export class AdminService {
         },
       };
     } catch (error) {
-      console.error("Error fetching orders:", error);
+      this.logger.error("Error fetching orders", error instanceof Error ? error.stack : error);
       throw new BadRequestException("Failed to fetch orders");
     }
   }

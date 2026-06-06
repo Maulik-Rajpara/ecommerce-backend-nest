@@ -14,22 +14,20 @@ import { QUEUES } from "src/async/async.constants";
 
 import { NotificationModule } from "src/notification/notification.module";
 import { UsersModule } from "src/users/users.module";
+import { EventStoreModule } from "src/event-store/event-store.module";
 
 @Module({
   imports: [
     BullModule.registerQueue(
-      {
-        name: QUEUES.PAYMENT_RETRY,
-      },
-      {
-        name: QUEUES.REFUND_RETRY, // optional: for future refund retry logic
-      },
+      { name: QUEUES.PAYMENT_RETRY },
+      { name: QUEUES.REFUND_RETRY },
     ),
     TypeOrmModule.forFeature([Payment, Refund]),
     OrderModule,
     KafkaModule,
     NotificationModule,
     UsersModule,
+    EventStoreModule,
   ],
   controllers: [PaymentController],
   providers: [PaymentService, PaymentRetryProcessor, RefundRetryProcessor],

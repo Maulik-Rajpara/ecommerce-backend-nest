@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Category } from "./entities/category.entity";
 import { Repository } from "typeorm";
@@ -8,6 +8,8 @@ import { S3Service } from "../s3/s3.service";
 
 @Injectable()
 export class CategoryService {
+  private readonly logger = new Logger(CategoryService.name);
+
   constructor(
     @InjectRepository(Category)
     private categoryRepo: Repository<Category>,
@@ -183,7 +185,7 @@ export class CategoryService {
       return category;
     } catch (err) {
       await queryRunner.rollbackTransaction();
-      console.error("Category Update Error:", err);
+      this.logger.error(`Category update failed for id: ${id}`, err instanceof Error ? err.stack : err);
       throw err;
     } finally {
       await queryRunner.release();

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Logger,
   Param,
   Post,
   Req,
@@ -15,6 +16,8 @@ import type { AuthenticatedRequest } from "../common/interfaces/authenticated-re
 // 🔥 PROTECT ALL ROUTES
 @Controller("payments")
 export class PaymentController {
+  private readonly logger = new Logger(PaymentController.name);
+
   constructor(
     private paymentService: PaymentService,
     private orderService: OrderService,
@@ -57,7 +60,7 @@ export class PaymentController {
         },
       };
     } catch (err) {
-      console.error("❌ SERVICE ERROR:", err);
+      this.logger.error("Create payment failed", err instanceof Error ? err.stack : err);
       throw err;
     }
   }
@@ -92,7 +95,7 @@ export class PaymentController {
         data: null,
       };
     } catch (err) {
-      console.error("❌ verifyPayment ERROR:", err);
+      this.logger.error("Verify payment failed", err instanceof Error ? err.stack : err);
       throw err;
     }
   }

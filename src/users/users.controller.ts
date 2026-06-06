@@ -9,6 +9,7 @@ import {
   Req,
   Query,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
@@ -24,6 +25,7 @@ import type { AuthenticatedRequest } from "../common/interfaces/authenticated-re
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Throttle({ auth: { limit: 10, ttl: 60000 } })
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);

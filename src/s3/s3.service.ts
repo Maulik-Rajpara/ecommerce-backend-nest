@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   S3Client,
   PutObjectCommand,
@@ -7,6 +7,7 @@ import {
 
 @Injectable()
 export class S3Service {
+  private readonly logger = new Logger(S3Service.name);
   private s3 = new S3Client({
     region: process.env.AWS_REGION!,
     credentials: {
@@ -34,7 +35,7 @@ export class S3Service {
 
       return `https://${process.env.AWS_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
     } catch (error) {
-      console.error("S3 Upload Error:", error);
+      this.logger.error(`S3 upload failed for key: ${key}`, error instanceof Error ? error.stack : error);
       throw new Error("File upload failed");
     }
   }

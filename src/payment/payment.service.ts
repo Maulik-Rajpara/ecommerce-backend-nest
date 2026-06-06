@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import Razorpay from "razorpay";
 import * as crypto from "crypto";
 import { ConfigService } from "@nestjs/config";
@@ -13,6 +13,8 @@ import { Refund, RefundStatus } from "src/refund/entities/refund.entity";
 import { KafkaService } from "src/kafka/kafka.service";
 import { KAFKA_TOPICS } from "src/kafka/kafka-topics.constants";
 import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
+import { EventStoreService } from "src/event-store/event-store.service";
+import { PaymentSuccessEvent } from "src/event-store/domain-events";
 
 interface RazorpayPaymentEvent {
   id: string;
@@ -35,6 +37,7 @@ interface CheckoutSignatureInput {
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private razorpay: Razorpay;
 
   constructor(
@@ -55,6 +58,7 @@ export class PaymentService {
     private refundRetryQueue: Queue,
 
     private kafkaService: KafkaService,
+    private readonly eventStoreService: EventStoreService,
   ) {
     this.razorpay = new Razorpay({
       key_id: this.configService.get("RAZORPAY_KEY_ID"),
@@ -165,7 +169,7 @@ export class PaymentService {
 
       // ❗ already paid
       if (order.status === OrderStatus.PAID) {
-        console.log("⚠️ Order already paid");
+        this.logger.warn("Order already paid, skipping payment success");
         // throw new BadRequestException("Order already paid");
 
         return;
@@ -173,14 +177,14 @@ export class PaymentService {
 
       // ❗ invalid state
       if (order.status !== OrderStatus.PENDING) {
-        console.log("⚠️ Order not pending, ignoring success");
+        this.logger.warn("Order not pending, ignoring payment success");
         // throw new BadRequestException("Order not pending, ignoring success");
         return;
       }
 
       // ❗ duplicate webhook
       if (payment.status === PaymentStatus.SUCCESS) {
-        console.log("⚠️ Duplicate payment success ignored");
+        this.logger.warn("Duplicate payment success ignored");
 
         //throw new BadRequestException("Duplicate payment success ignored");
         return;
@@ -191,12 +195,22 @@ export class PaymentService {
 
       await this.paymentRepo.save(payment);
 
-      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_SUCCESS, {
-        razorpayOrderId: data.order_id,
-        paymentId: data.id,
+      // await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_SUCCESS, {
+      //   razorpayOrderId: data.order_id,
+      //   paymentId: data.id,
+      // });
+
+      await this.eventStoreService.createOutboxEvent({
+        type: KAFKA_TOPICS.PAYMENT_SUCCESS,
+        aggregateId: order.id,
+        payload: {
+          razorpayOrderId: data.order_id,
+          paymentId: data.id,
+        },
       });
+     
     } catch (error) {
-      console.error("Error marking payment success:", error);
+      this.logger.error("Error marking payment success", error instanceof Error ? error.stack : error);
       throw error;
     }
   }
@@ -212,7 +226,7 @@ export class PaymentService {
 
     if (!payment || !payment.order) return;
     if (payment.status === PaymentStatus.FAILED) {
-      console.log("⚠️ Duplicate failure ignored");
+      this.logger.warn("Duplicate payment failure ignored");
       return;
     }
 
@@ -227,20 +241,38 @@ export class PaymentService {
 
     if (order.expiresAt && order.expiresAt < new Date()) {
       await this.orderService.handlePaymentFailed(data.order_id);
-      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
-        orderId: order.id,
-        userId: order.userId,
-        reason: "order-expired",
+      // await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+      //   orderId: order.id,
+      //   userId: order.userId,
+      //   reason: "order-expired",
+      // });
+       await this.eventStoreService.createOutboxEvent({
+        type: KAFKA_TOPICS.PAYMENT_FAILED,
+        aggregateId: order.id,
+        payload: {
+          orderId: order.id,
+          userId: order.userId,
+          reason: "order-expired",
+        },
       });
       return;
     }
 
     if (nextRetryCount >= 3) {
       await this.orderService.handlePaymentFailed(data.order_id);
-      await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
-        orderId: order.id,
-        userId: order.userId,
-        reason: "retry-limit-reached",
+      // await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+      //   orderId: order.id,
+      //   userId: order.userId,
+      //   reason: "retry-limit-reached",
+      // });
+       await this.eventStoreService.createOutboxEvent({
+        type: KAFKA_TOPICS.PAYMENT_FAILED,
+        aggregateId: order.id,
+        payload: {
+          orderId: order.id,
+          userId: order.userId,
+          reason: "retry-limit-reached",
+        },
       });
       return;
     }
@@ -272,11 +304,20 @@ export class PaymentService {
       // ❗ expired
       if (order.expiresAt && order.expiresAt < new Date()) {
         await this.orderService.handlePaymentFailed(order.razorpayOrderId);
-        await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
-          orderId: order.id,
-          userId: order.userId,
-          reason: "order-expired-during-retry",
-        });
+        // await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_FAILED, {
+        //   orderId: order.id,
+        //   userId: order.userId,
+        //   reason: "order-expired-during-retry",
+        // });
+         await this.eventStoreService.createOutboxEvent({
+            type: KAFKA_TOPICS.PAYMENT_FAILED,
+            aggregateId: order.id,
+            payload: {
+              orderId: order.id,
+              userId: order.userId,
+              reason: "order-expired-during-retry",
+            },
+          });
         return;
       }
 
@@ -298,10 +339,10 @@ export class PaymentService {
       await this.paymentRepo.save(newPayment);
 
       await this.orderService.updateRazorpayOrderId(order.id, razorpayOrder.id);
-      console.log("success in retryPayment:", razorpayOrder);
+      this.logger.log(`Retry payment created: ${razorpayOrder.id}`);
       return razorpayOrder;
     } catch (err) {
-      console.error("Error in retryPayment:", err);
+      this.logger.error("Error in retryPayment", err instanceof Error ? err.stack : err);
       throw err;
     }
   }
@@ -374,7 +415,7 @@ export class PaymentService {
 
     // ❗ prevent overwrite
     if (refund.status === RefundStatus.SUCCESS) return;
-    console.log("Handling refund success for refundId:", refundId);
+    this.logger.log(`Handling refund success for refundId: ${refundId}`);
 
     refund.status = RefundStatus.SUCCESS;
     await this.refundRepo.save(refund);
@@ -401,16 +442,25 @@ export class PaymentService {
     }
     // console.log("kafka", total);
 
-    await this.kafkaService
-      .emit(KAFKA_TOPICS.REFUND_SUCCESS, {
-        orderId: order.id,
-        userId: order.userId,
-      })
-      .catch((err) => {
-        console.error("Error emitting refund-success event:", err);
-      })
-      .then(() => {
-        // console.log("Emitted refund-success event for orderId:", order.id);
+    // await this.kafkaService
+    //   .emit(KAFKA_TOPICS.REFUND_SUCCESS, {
+    //     orderId: order.id,
+    //     userId: order.userId,
+    //   })
+    //   .catch((err) => {
+    //     console.error("Error emitting refund-success event:", err);
+    //   })
+    //   .then(() => {
+    //     // console.log("Emitted refund-success event for orderId:", order.id);
+    //   });
+
+      await this.eventStoreService.createOutboxEvent({
+        type: KAFKA_TOPICS.REFUND_SUCCESS,
+        aggregateId: order.id,
+        payload: {
+          orderId: order.id,
+          userId: order.userId,
+        },
       });
   }
 
@@ -430,17 +480,25 @@ export class PaymentService {
 
     // 🔁 retry limit
     if (refund.retryCount >= 3) {
-      console.log("❌ Max refund retry reached");
+      this.logger.warn(`Max refund retry reached for refundId: ${refund.id}`);
 
       refund.status = RefundStatus.FAILED;
       await this.refundRepo.save(refund);
 
-      await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
-        refundId: refund.id,
-        orderId: refund.payment.order.id,
-        userId: refund.payment.order.userId,
-      });
-
+      // await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
+      //   refundId: refund.id,
+      //   orderId: refund.payment.order.id,
+      //   userId: refund.payment.order.userId,
+      // });
+      await this.eventStoreService.createOutboxEvent({
+            type: KAFKA_TOPICS.REFUND_FAILED,
+            aggregateId: refund.payment.order.id,
+            payload: {
+             refundId: refund.id,
+              orderId: refund.payment.order.id,
+              userId: refund.payment.order.userId,
+            },
+       });
       return;
     }
 
@@ -458,10 +516,19 @@ export class PaymentService {
     );
 
     // for user notification (optional, since refund retry is automatic)
-    await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
-      refundId: refund.id,
-      orderId: refund.payment.order.id,
-      userId: refund.payment.order.userId,
+    // await this.kafkaService.emit(KAFKA_TOPICS.REFUND_FAILED, {
+    //   refundId: refund.id,
+    //   orderId: refund.payment.order.id,
+    //   userId: refund.payment.order.userId,
+    // });
+    await this.eventStoreService.createOutboxEvent({
+      type: KAFKA_TOPICS.REFUND_FAILED,
+      aggregateId: refund.payment.order.id,
+      payload: {
+          refundId: refund.id,
+          orderId: refund.payment.order.id,
+          userId: refund.payment.order.userId,
+      },
     });
   }
 
@@ -493,9 +560,9 @@ export class PaymentService {
 
       await this.refundRepo.save(refund);
 
-      console.log("✅ Refund retry initiated");
+      this.logger.log(`Refund retry initiated for refundId: ${refund.id}`);
     } catch {
-      console.error("❌ Retry failed again");
+      this.logger.error("Refund retry failed again");
     }
   }
 
@@ -541,7 +608,7 @@ export class PaymentService {
 
       return razorpayOrder;
     } catch (err) {
-      console.error("Error in retryFromFrontend:", err);
+      this.logger.error("Error in retryFromFrontend", err instanceof Error ? err.stack : err);
       throw err;
     }
   }

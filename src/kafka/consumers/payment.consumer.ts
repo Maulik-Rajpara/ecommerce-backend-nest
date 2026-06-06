@@ -1,4 +1,4 @@
-import { Controller } from "@nestjs/common";
+import { Controller, Logger } from "@nestjs/common";
 import { EventPattern, Payload } from "@nestjs/microservices";
 import { OrderService } from "src/order/order.service";
 import { KAFKA_TOPICS } from "../kafka-topics.constants";
@@ -24,12 +24,12 @@ interface PaymentRetryEnvelope extends Record<string, unknown> {
 
 @Controller()
 export class PaymentConsumer {
+  private readonly logger = new Logger(PaymentConsumer.name);
+
   constructor(
     private readonly orderService: OrderService,
     private readonly kafkaService: KafkaService,
-  ) {
-    console.log("PaymentConsumer initialized");
-  }
+  ) {}
 
   private decodeKafkaMessage(message: unknown): unknown {
     if (
@@ -85,6 +85,7 @@ export class PaymentConsumer {
 
       if (attempt === 0) {
         await this.kafkaService.emit(KAFKA_TOPICS.PAYMENT_SUCCESS_RETRY_1, retryEnvelope);
+        
         return;
       }
 
@@ -117,12 +118,12 @@ export class PaymentConsumer {
   @EventPattern(KAFKA_TOPICS.PAYMENT_SUCCESS_DLQ)
   handlePaymentSuccessDLQ(@Payload() message: KafkaEnvelope) {
     const data = message.value?.toString();
-    console.error("💀 PAYMENT SUCCESS DLQ EVENT:", data);
+    this.logger.error(`PAYMENT SUCCESS DLQ EVENT: ${data}`);
   }
 
   @EventPattern(KAFKA_TOPICS.PAYMENT_DLQ)
   handleLegacyDLQ(@Payload() message: KafkaEnvelope) {
     const data = message.value?.toString();
-    console.error("💀 LEGACY PAYMENT DLQ EVENT:", data);
+    this.logger.error(`LEGACY PAYMENT DLQ EVENT: ${data}`);
   }
 }

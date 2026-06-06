@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { NotifcationGateway } from "src/gateway/notification.gateway";
 import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
@@ -12,6 +12,8 @@ interface OrderNotificationPayload {
 
 @Injectable()
 export class NotificationService {
+  private readonly logger = new Logger(NotificationService.name);
+
   constructor(
     private gateway: NotifcationGateway,
     @InjectQueue(QUEUES.EMAIL) private emailQueue: Queue,
@@ -64,7 +66,7 @@ export class NotificationService {
     userId: string;
     email?: string;
   }) {
-    console.log("📧 Refund success mail:", data);
+    this.logger.log(`Sending refund success notification for orderId: ${data.orderId}`);
 
     this.gateway.notifyUser(data.userId, {
       type: "ORDER_PAID",

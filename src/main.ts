@@ -10,6 +10,8 @@ import { ExpressAdapter } from "@bull-board/express";
 import { getQueueToken } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import * as express from "express";
+import helmet from "helmet";
+import compression from "compression";
 import { Transport } from "@nestjs/microservices";
 import { QUEUES } from "./async/async.constants";
 
@@ -18,12 +20,23 @@ async function bootstrap() {
     bodyParser: false,
   });
 
+  app.use(helmet());
+  app.use(compression());
+
   app.use(
     "/api/v1/webhook/razorpay",
     express.raw({ type: "application/json" }),
   );
 
   app.use(express.json());
+
+  app.enableCors({
+    origin: process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",")
+      : false,
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    credentials: true,
+  });
 
   app.setGlobalPrefix("api/v1");
 
@@ -72,6 +85,7 @@ async function bootstrap() {
       },
     },
   });
+  app.enableShutdownHooks();
   await app.startAllMicroservices();
   await app.listen(process.env.PORT ?? 3000);
 

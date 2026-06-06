@@ -5,10 +5,13 @@ import {
   Headers,
   BadRequestException,
 } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { PaymentService } from "src/payment/payment.service";
 import { EventStoreService } from "src/event-store/event-store.service";
+import { EventDirection } from "src/event-store/entities/event-store.entity";
 
+@SkipThrottle()
 @Controller("webhook")
 export class PaymentWebhookController {
   constructor(
@@ -56,6 +59,7 @@ export class PaymentWebhookController {
       const key = webhookEventId ?? `${event}_${aggregateId}`;
 
       await this.eventStoreService.createEvent({
+        direction: EventDirection.INCOMING,
         type: event,
         aggregateId,
         payload: parsedBody,

@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import {
   EventStatus,
@@ -9,6 +9,8 @@ import { Brackets, DataSource, Repository } from "typeorm";
 
 @Injectable()
 export class EventProcessorService {
+  private readonly logger = new Logger(EventProcessorService.name);
+
   constructor(
     @InjectRepository(EventStore)
     private eventRepo: Repository<EventStore>,
@@ -40,7 +42,7 @@ export class EventProcessorService {
 
         const delay = 1000 * 60 * event.retryCount; // 1min, 2min, 3min...
         event.nextRetryAt = new Date(Date.now() + delay);
-        console.error("❌ Error processing event:", err);
+        this.logger.error(`Error processing event id=${event.id} type=${event.type}`, err instanceof Error ? err.stack : err);
 
         await this.eventRepo.save(event);
       }
@@ -50,6 +52,7 @@ export class EventProcessorService {
   private async claimEvents(limit: number): Promise<EventStore[]> {
     return this.dataSource.transaction(async (manager) => {
       const now = new Date();
+      const stuckTime = new Date(Date.now() - 5 * 60 * 1000);
       const repo = manager.getRepository(EventStore);
       const events = await repo
         .createQueryBuilder("event")
@@ -57,10 +60,25 @@ export class EventProcessorService {
           new Brackets((qb) => {
             qb.where("event.status = :pending", {
               pending: EventStatus.PENDING,
-            }).orWhere("event.status = :failed AND event.nextRetryAt <= :now", {
-              failed: EventStatus.FAILED,
-              now,
-            });
+            }).orWhere(`
+              event.status = :failed
+              AND event.nextRetryAt IS NOT NULL
+              AND event.nextRetryAt <= :now
+            `,
+              {
+                failed: EventStatus.FAILED,
+                now,
+              },).orWhere(
+              `
+              event.status = :processing
+              AND event.processingStartedAt IS NOT NULL
+              AND event.processingStartedAt <= :stuckTime
+            `,
+              {
+                processing: EventStatus.PROCESSING,
+                stuckTime,
+              },
+            );
           }),
         )
         .orderBy("event.createdAt", "ASC")
@@ -77,13 +95,14 @@ export class EventProcessorService {
       await repo
         .createQueryBuilder()
         .update(EventStore)
-        .set({ status: EventStatus.PROCESSING })
+        .set({ status: EventStatus.PROCESSING , processingStartedAt: new Date(),})
         .whereInIds(eventIds)
         .execute();
 
       return events.map((event) => ({
         ...event,
         status: EventStatus.PROCESSING,
+        processingStartedAt: new Date(),
       }));
     });
   }
@@ -130,7 +149,7 @@ export class EventProcessorService {
         break;
 
       default:
-        console.log(`⚠️ Unhandled event type: ${event.type}`);
+        this.logger.warn(`Unhandled event type: ${event.type}`);
       //throw new Error(`Unknown event type: ${event.type}`);
     }
   }

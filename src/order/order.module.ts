@@ -18,6 +18,7 @@ import { User } from "src/users/entities/user.entity";
 import { NotificationModule } from "src/notification/notification.module";
 import { KafkaModule } from "src/kafka/kafka.module";
 import { QUEUES } from "src/async/async.constants";
+import { EventStoreModule } from "src/event-store/event-store.module";
 //import { PaymentListener } from 'src/common/events/listeners/payment.listener';
 
 @Module({
@@ -29,6 +30,7 @@ import { QUEUES } from "src/async/async.constants";
     UsersModule,
     NotificationModule,
     KafkaModule,
+    EventStoreModule
   ],
   controllers: [OrderController],
   providers: [OrderService, OrderCronService, OrderExpiryProcessor],
