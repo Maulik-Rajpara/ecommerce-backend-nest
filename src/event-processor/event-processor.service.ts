@@ -1,31 +1,31 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { EventStatus, EventStore } from "src/event-store/entities/event-store.entity";
+import {
+  EventStatus,
+  EventStore,
+} from "src/event-store/entities/event-store.entity";
 import { PaymentService } from "src/payment/payment.service";
-import { Repository } from "typeorm";
+import { Brackets, DataSource, Repository } from "typeorm";
 
 @Injectable()
 export class EventProcessorService {
+  private readonly logger = new Logger(EventProcessorService.name);
+
   constructor(
     @InjectRepository(EventStore)
     private eventRepo: Repository<EventStore>,
-
     private paymentService: PaymentService,
+    private dataSource: DataSource,
   ) {}
 
   async processEvents() {
-    const events = await this.eventRepo.find({
-      where: { status: EventStatus.PENDING },
-      take: 10,
-    });
+    const events = await this.claimEvents(10);
 
     for (const event of events) {
       try {
-        event.status = EventStatus.PROCESSING;
-        await this.eventRepo.save(event);
-
-        if (event.retryCount > 3) {
+        if (event.retryCount >= 3) {
           event.status = EventStatus.DEAD;
+
           await this.eventRepo.save(event);
           continue;
         }
@@ -37,30 +37,108 @@ export class EventProcessorService {
       } catch (err) {
         event.retryCount += 1;
         event.status = EventStatus.FAILED;
-        event.error = err.message;
+        event.error =
+          err instanceof Error ? err.message : "Unknown event processing error";
 
-        console.error("❌ Error processing event:", err);
+        const delay = 1000 * 60 * event.retryCount; // 1min, 2min, 3min...
+        event.nextRetryAt = new Date(Date.now() + delay);
+        this.logger.error(`Error processing event id=${event.id} type=${event.type}`, err instanceof Error ? err.stack : err);
 
         await this.eventRepo.save(event);
       }
     }
   }
 
+  private async claimEvents(limit: number): Promise<EventStore[]> {
+    return this.dataSource.transaction(async (manager) => {
+      const now = new Date();
+      const stuckTime = new Date(Date.now() - 5 * 60 * 1000);
+      const repo = manager.getRepository(EventStore);
+      const events = await repo
+        .createQueryBuilder("event")
+        .where(
+          new Brackets((qb) => {
+            qb.where("event.status = :pending", {
+              pending: EventStatus.PENDING,
+            }).orWhere(`
+              event.status = :failed
+              AND event.nextRetryAt IS NOT NULL
+              AND event.nextRetryAt <= :now
+            `,
+              {
+                failed: EventStatus.FAILED,
+                now,
+              },).orWhere(
+              `
+              event.status = :processing
+              AND event.processingStartedAt IS NOT NULL
+              AND event.processingStartedAt <= :stuckTime
+            `,
+              {
+                processing: EventStatus.PROCESSING,
+                stuckTime,
+              },
+            );
+          }),
+        )
+        .orderBy("event.createdAt", "ASC")
+        .limit(limit)
+        .setLock("pessimistic_write")
+        .setOnLocked("skip_locked")
+        .getMany();
+
+      if (!events.length) {
+        return [];
+      }
+
+      const eventIds = events.map((event) => event.id);
+      await repo
+        .createQueryBuilder()
+        .update(EventStore)
+        .set({ status: EventStatus.PROCESSING , processingStartedAt: new Date(),})
+        .whereInIds(eventIds)
+        .execute();
+
+      return events.map((event) => ({
+        ...event,
+        status: EventStatus.PROCESSING,
+        processingStartedAt: new Date(),
+      }));
+    });
+  }
+
   async handleEvent(event: EventStore) {
-    const payload = event.payload;
+    const payload = event.payload as {
+      payload?: {
+        payment?: { entity?: { id?: string; order_id?: string } };
+        refund?: { entity?: { id?: string } };
+      };
+    };
 
     switch (event.type) {
-      case "payment.captured":
-        await this.paymentService.markPaymentSuccess(
-          payload.payload.payment.entity,
-        );
+      case "payment.captured": {
+        const paymentEntity = payload.payload?.payment?.entity;
+        if (!paymentEntity?.id || !paymentEntity.order_id) {
+          throw new Error("Missing payment payload");
+        }
+        await this.paymentService.markPaymentSuccess({
+          id: paymentEntity.id,
+          order_id: paymentEntity.order_id,
+        });
         break;
+      }
 
-      case "payment.failed":
-        await this.paymentService.markPaymentFailed(
-          payload.payload.payment.entity,
-        );
+      case "payment.failed": {
+        const paymentEntity = payload.payload?.payment?.entity;
+        if (!paymentEntity?.id || !paymentEntity.order_id) {
+          throw new Error("Missing payment payload");
+        }
+        await this.paymentService.markPaymentFailed({
+          id: paymentEntity.id,
+          order_id: paymentEntity.order_id,
+        });
         break;
+      }
 
       case "refund.processed":
         await this.paymentService.handleRefundSuccess(payload.payload);
@@ -71,7 +149,8 @@ export class EventProcessorService {
         break;
 
       default:
-        console.log("⚠️ Unknown event:", event.type);
+        this.logger.warn(`Unhandled event type: ${event.type}`);
+      //throw new Error(`Unknown event type: ${event.type}`);
     }
   }
 

@@ -5,7 +5,7 @@ export class WebhookEvent {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ unique: true } )
+  @Column({ unique: true })
   eventId: string;
 
   @Column()

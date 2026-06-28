@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-} from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import Razorpay from "razorpay";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -10,12 +7,10 @@ import { Payment, PaymentStatus } from "../payment/entities/payment.entity";
 import { Order, OrderStatus } from "../order/entities/order.entity";
 import { ConfigService } from "@nestjs/config";
 import { OrderService } from "src/order/order.service";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { EVENTS } from "src/common/events/events.constants";
-import { UsersService } from "src/users/users.service";
 
 @Injectable()
 export class RefundService {
+  private readonly logger = new Logger(RefundService.name);
   private razorpay: Razorpay;
 
   constructor(
@@ -31,10 +26,6 @@ export class RefundService {
     private orderRepo: Repository<Order>,
 
     private orderService: OrderService,
-
-    private eventEmitter: EventEmitter2,
-
-    private userService: UsersService,
   ) {
     this.razorpay = new Razorpay({
       key_id: this.configService.get("RAZORPAY_KEY_ID"),
@@ -65,7 +56,7 @@ export class RefundService {
       });
 
       if (existing) {
-        console.log("⚠️ Duplicate refund request detected");
+        this.logger.warn(`Duplicate refund request detected for key: ${idempotencyKey}`);
         return {
           statusCode: 200,
           message: "Duplicate request - returning existing refund",
@@ -101,11 +92,11 @@ export class RefundService {
       }
 
       // 🔢 TOTAL REFUNDED CALCULATION
-      const totalRefundedResult = await this.refundRepo
+      const totalRefundedResult = (await this.refundRepo
         .createQueryBuilder("refund")
         .select("COALESCE(SUM(refund.amount), 0)", "total")
         .where("refund.paymentId = :paymentId", { paymentId: payment.id })
-        .getRawOne();
+        .getRawOne()) as { total: string | null };
 
       const totalRefunded = Number(totalRefundedResult.total);
 
@@ -132,8 +123,25 @@ export class RefundService {
         );
       }
 
-      console.log("💰 Processing refund for payment:", payment.id);
+      this.logger.log(`Processing refund for paymentId: ${payment.id}, amount: ${refundAmount}`);
+      //this.logger.log("razorpayPaymentId ",payment.razorpayPaymentId);
 
+      // const paymentInfo = await this.razorpay.payments.fetch(
+      //     payment.razorpayPaymentId,
+      //   );
+
+        // this.logger.log("PAYMENT INFO");
+        // this.logger.log(paymentInfo);
+        // console.log(this.razorpay);
+        // console.log(require("razorpay/package.json").version);
+
+        // console.log({
+        //     razorpayPaymentId: payment.razorpayPaymentId,
+        //     refundAmount,
+        //     refundAmountPaise: refundAmount * 100,
+        //     paymentAmount: payment.amount,
+        //     totalRefunded,
+        // });
       // 🔥 RAZORPAY REFUND CALL
       const razorpayRefund = await this.razorpay.payments.refund(
         payment.razorpayPaymentId,
@@ -142,13 +150,14 @@ export class RefundService {
         },
       );
 
+     // this.logger.log("razorpayRefund ",razorpayRefund);
       // 💾 SAVE REFUND
       const refund = this.refundRepo.create({
         payment,
         paymentId: payment.id,
         amount: refundAmount,
         razorpayRefundId: razorpayRefund.id,
-        status: RefundStatus.SUCCESS,
+        status: RefundStatus.INITIATED,
         idempotencyKey,
       });
 
@@ -158,15 +167,15 @@ export class RefundService {
       const newTotalRefunded = totalRefunded + refundAmount;
 
       if (newTotalRefunded === Number(payment.amount)) {
-          await this.orderService.updateOrderState(
-            order.id,
-            OrderStatus.REFUNDED,
-          );
-        } else {
-          await this.orderService.updateOrderState(
-            order.id,
-            OrderStatus.PARTIALLY_REFUNDED,
-         );
+        await this.orderService.updateOrderState(
+          order.id,
+          OrderStatus.REFUNDED,
+        );
+      } else {
+        await this.orderService.updateOrderState(
+          order.id,
+          OrderStatus.PARTIALLY_REFUNDED,
+        );
       }
 
       // const user = await this.userService.findOne(order.userId);
@@ -182,25 +191,36 @@ export class RefundService {
         message: "Refund successful",
         data: refund,
       };
-    } catch (error) {
-     
-      console.error("❌ Refund creation failed:", error);
-      throw new BadRequestException(
-        "Refund creation failed: " + error.message,
-      );
+    } catch (error:any) {
+      
+      const message =
+        error instanceof Error ? error.message : ("Unknown refund error");
+      this.logger.error("Refund creation failed", error instanceof Error ? error.stack : error);
+      throw new BadRequestException("Refund creation failed: " + message);
     }
   }
 
   // ✅ GET ALL REFUNDS
-  async getRefunds() {
-    const refunds = await this.refundRepo.find({
+  async getRefunds(page = 1, limit = 20) {
+    const take = Math.min(Number(limit), 100);
+    const skip = (Number(page) - 1) * take;
+
+    const [refunds, total] = await this.refundRepo.findAndCount({
       relations: ["payment"],
       order: { createdAt: "DESC" },
+      skip,
+      take,
     });
 
     return {
       statusCode: 200,
       data: refunds,
+      meta: {
+        total,
+        page: Number(page),
+        limit: take,
+        totalPages: Math.ceil(total / take),
+      },
     };
   }
 

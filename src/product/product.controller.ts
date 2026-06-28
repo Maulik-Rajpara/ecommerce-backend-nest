@@ -29,16 +29,21 @@ export class ProductController {
 
   @Roles("admin")
   @Post()
-  @UseInterceptors(FilesInterceptor('files', 5, {
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
-    fileFilter: (req, file, cb) => {
-      if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-        return cb(new BadRequestException('Invalid file type'), false);
-      }
-      cb(null, true);
-    },
-  }),)
-  create(@Body() dto: CreateProductDto, @UploadedFiles() files?: Express.Multer.File[],) {
+  @UseInterceptors(
+    FilesInterceptor("files", 5, {
+      limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException("Invalid file type"), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  create(
+    @Body() dto: CreateProductDto,
+    @UploadedFiles() files?: Express.Multer.File[],
+  ) {
     return this.productService.create(dto, files);
   }
 
@@ -53,11 +58,16 @@ export class ProductController {
     @Query("order") order: "ASC" | "DESC" = "DESC",
     @Query("categoryId") categoryId?: string,
   ) {
-    return this.productService.findAll(+page, +limit, search, minPrice ? +minPrice : undefined,
+    return this.productService.findAll(
+      +page,
+      +limit,
+      search,
+      minPrice ? +minPrice : undefined,
       maxPrice ? +maxPrice : undefined,
       sortBy,
       order,
-      categoryId);
+      categoryId,
+    );
   }
 
   @Get(":id")
@@ -90,9 +100,8 @@ export class ProductController {
     return this.productService.inActive(id);
   }
 
-   @Delete(":id")
-   remove(@Param("id") id: string) {
-     return this.productService.remove(id);
-   }
-    
+  @Delete(":id")
+  remove(@Param("id") id: string) {
+    return this.productService.remove(id);
+  }
 }

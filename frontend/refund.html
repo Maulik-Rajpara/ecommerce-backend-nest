@@ -5,9 +5,12 @@
 <script>
   var options = {
     "key": "rzp_test_Sb2FIArvbsIdqr",
-    "amount": "50000", // paise
+    "amount": "400000", // paise
     "currency": "INR",
-    "order_id": "order_Sc6HM5XYQKwdHX", // backend se aaya hua
+    "order_id": "order_T13iOIrl2EApfr", 
+    "retry": {
+      "enabled": false   // 👈 yaha control hota hai
+    },
     "handler": function (response){
         console.log(response);
     }

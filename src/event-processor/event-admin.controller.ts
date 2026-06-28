@@ -5,11 +5,11 @@ import {
   Param,
   Query,
   ParseIntPipe,
-} from '@nestjs/common';
-import { EventProcessorService } from './event-processor.service';
-import { EventStoreService } from 'src/event-store/event-store.service';
+} from "@nestjs/common";
+import { EventProcessorService } from "./event-processor.service";
+import { EventStoreService } from "src/event-store/event-store.service";
 
-@Controller('event-admin')
+@Controller("event-admin")
 export class EventAdminController {
   constructor(
     private readonly processor: EventProcessorService,
@@ -17,34 +17,28 @@ export class EventAdminController {
   ) {}
 
   // ================= LIST EVENTS =================
-  @Get('events')
+  @Get("events")
   async getEvents(
-    @Query('status') status: any,
-    @Query('limit', ParseIntPipe) limit: number = 20,
+    @Query("status") status?: string,
+    @Query("page", new ParseIntPipe({ optional: true })) page = 1,
+    @Query("limit", new ParseIntPipe({ optional: true })) limit = 20,
   ) {
-    try { 
-          console.log("Error fetching events:",);
-        return this.eventStore.getEvents(status, limit);
-     }catch (error) {
-      console.error("Error fetching events:", error);
-      throw error;
-    }
-    
+    return this.eventStore.getEvents(status, page, limit);
   }
 
   // ================= PROCESS PENDING =================
-  @Post('process')
+  @Post("process")
   async processEvents() {
     await this.processor.processEvents();
 
     return {
-      message: 'Event processing triggered manually',
+      message: "Event processing triggered manually",
     };
   }
 
   // ================= RETRY FAILED EVENT =================
-  @Post(':id/retry')
-  async retryEvent(@Param('id') id: string) {
+  @Post(":id/retry")
+  async retryEvent(@Param("id") id: string) {
     return this.processor.retryEvent(id);
   }
 }

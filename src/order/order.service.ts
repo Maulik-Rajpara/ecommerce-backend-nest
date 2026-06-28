@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
 
@@ -11,16 +11,20 @@ import { CartItem } from "../cart/entities/cart-item.entity";
 
 import { Queue } from "bullmq";
 import { InjectQueue } from "@nestjs/bullmq";
+import { JOBS, QUEUES } from "src/async/async.constants";
 
 import { validateOrderTransition } from "./state/order.state.validate";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { EVENTS } from "src/common/events/events.constants";
 
 import { UsersService } from "src/users/users.service";
 import { NotificationService } from "src/notification/notification.service";
+import { KafkaService } from "src/kafka/kafka.service";
+import { KAFKA_TOPICS } from "src/kafka/kafka-topics.constants";
+import { EventStoreService } from "src/event-store/event-store.service";
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(
     private dataSource: DataSource,
 
@@ -36,11 +40,12 @@ export class OrderService {
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
 
-    @InjectQueue("order-expiry") private orderQueue: Queue,
+    @InjectQueue(QUEUES.ORDER_EXPIRY) private orderQueue: Queue,
 
-    private eventEmitter: EventEmitter2,
-    private userService: UsersService, 
+    private userService: UsersService,
     private notificationService: NotificationService,
+    private kafkaService: KafkaService,
+    private eventStoreService: EventStoreService, 
   ) {}
 
   // ================= CREATE ORDER =================
@@ -120,12 +125,11 @@ export class OrderService {
 
       // async job
       await this.orderQueue.add(
-        "order-expiry",
+        JOBS.ORDER_EXPIRE,
         { orderId: order.id },
         { delay: 15 * 60 * 1000 },
       );
 
-     
       return {
         statusCode: 201,
         statusMessage: "Order created",
@@ -140,37 +144,77 @@ export class OrderService {
   }
 
   // ================= PAYMENT SUCCESS =================
-  async handlePaymentSuccess(orderId: string, paymentId: string) {
+  async handlePaymentSuccess(razorpayOrderId: string, paymentId: string) {
+    // 🔹 QueryRunner create → manual transaction control
     const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+
+    await queryRunner.connect(); // 🔹 DB connection attach
+    await queryRunner.startTransaction(); // 🔹 BEGIN TRANSACTION
 
     try {
+      // =========================================================
+      // STEP 1: LOCK ONLY ORDER (NO RELATIONS ❗)
+      // =========================================================
       const order = await queryRunner.manager.findOne(Order, {
-        where: { id: orderId },
-        relations: ["items", "items.product"],
+        where: { razorpayOrderId },
+
+        // 🔥 CRITICAL: lock only base table
+        lock: { mode: "pessimistic_write" },
       });
 
-     
+      // 🔹 if order not found → stop safely
+      if (!order) {
+        this.logger.warn(`Order not found for webhook: ${razorpayOrderId}`);
+        await queryRunner.rollbackTransaction();
+        return;
+      }
 
-      if (!order) throw new BadRequestException("Order not found");
+      // =========================================================
+      // STEP 2: IDEMPOTENCY CHECK (VERY IMPORTANT 🔥)
+      // =========================================================
 
+      // 🔹 already processed payment → skip
+      if (order.paymentId) {
+        this.logger.warn("Payment already processed, skipping...");
+        await queryRunner.commitTransaction(); // release lock
+        return;
+      }
+
+      // 🔹 already marked paid → skip
       if (order.status === OrderStatus.PAID) {
-        console.log("⚠️ Already paid, skipping");
+        this.logger.warn(`Already paid (duplicate webhook) orderId=${order.id}`);
         await queryRunner.commitTransaction();
         return;
       }
 
+      // 🔹 validate state transition (business rule)
       validateOrderTransition(order.status, OrderStatus.PAID);
 
-      // ✅ update INSIDE transaction
-      order.status = OrderStatus.PAID;
-      order.paymentId = paymentId;
+      // =========================================================
+      // STEP 3: LOAD RELATIONS SEPARATELY (NO LOCK ❗)
+      // =========================================================
+      const orderWithItems = await queryRunner.manager.findOne(Order, {
+        where: { id: order.id },
+        relations: ["items", "items.product"],
+      });
 
-      await queryRunner.manager.save(order);
+      // =========================================================
+      // STEP 4: UPDATE ORDER
+      // =========================================================
+      order.status = OrderStatus.PAID; // mark paid
+      order.paymentId = paymentId; // store payment id
 
-      // reduce stock
-      for (const item of order.items) {
+      await queryRunner.manager.save(order); // persist changes
+
+      // =========================================================
+      // STEP 5: REDUCE STOCK
+      // =========================================================
+      if (!orderWithItems) {
+        await queryRunner.rollbackTransaction();
+        return;
+      }
+      for (const item of orderWithItems.items) {
+        // 🔹 atomic decrement → no race condition
         await queryRunner.manager.decrement(
           Product,
           { id: item.product.id },
@@ -179,7 +223,9 @@ export class OrderService {
         );
       }
 
-      // clear cart
+      // =========================================================
+      // STEP 6: CLEAR USER CART
+      // =========================================================
       if (order.userId) {
         const cart = await queryRunner.manager.findOne(Cart, {
           where: { user: { id: order.userId } },
@@ -192,30 +238,41 @@ export class OrderService {
         }
       }
 
-      
-      await queryRunner.commitTransaction();
+      // =========================================================
+      // STEP 7: COMMIT TRANSACTION
+      // =========================================================
+      await queryRunner.commitTransaction(); // 🔥 ALL DB SAFE NOW
 
-      const user = await this.userService.findOne(order.userId);
+      // =========================================================
+      // STEP 8: OUTSIDE TRANSACTION SIDE EFFECTS
+      // =========================================================
 
+      // 🔹 fetch user (no lock needed now)
+      const user = await this.userService.findBasicById(order.userId);
+
+      // 🔹 send notification (external system)
       await this.notificationService.sendOrderPaid({
-          orderId: order.id,
-          userId: order.userId,
-          email: user?.data.email,
-        });
-
+        orderId: order.id,
+        userId: order.userId,
+        email: user?.email,
+      });
     } catch (err) {
-      console.error("Error in handlePaymentSuccess:", err);
+      this.logger.error("Error in handlePaymentSuccess", err instanceof Error ? err.stack : err);
+
+      // 🔹 rollback everything if error
       await queryRunner.rollbackTransaction();
-      throw err;
+
+      return; // ❗ DO NOT THROW → avoids Kafka retry loop
     } finally {
+      // 🔹 always release connection
       await queryRunner.release();
     }
   }
 
   // ================= PAYMENT FAILED =================
-  async handlePaymentFailed(orderId: string) {
+  async handlePaymentFailed(razorpayOrderId: string) {
     const order = await this.orderRepo.findOne({
-      where: { id: orderId },
+      where: { razorpayOrderId },
     });
 
     if (!order) return;
@@ -225,7 +282,7 @@ export class OrderService {
       order.status === OrderStatus.PAID ||
       order.status === OrderStatus.CANCELLED
     ) {
-      console.log("⚠️ Skipping duplicate payment failure event");
+      this.logger.warn("Skipping duplicate payment failure event");
       return;
     }
 
@@ -234,26 +291,46 @@ export class OrderService {
 
     order.status = OrderStatus.CANCELLED;
     await this.orderRepo.save(order);
-      const user = await this.userService.findOne(order.userId);
-      await this.notificationService.sendOrderCancelled({
-          orderId: order.id,
-          userId: order.userId,
-          email: user?.data.email,
-     });
   }
 
   // ================= EXPIRE ORDER =================
   async expireOrder(orderId: string) {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId },
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let userId: string | null = null;
+
+    try {
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: "pessimistic_write" },
+      });
+
+      // Already handled by another runner (BullMQ or cron) — safe no-op
+      if (!order || order.status !== OrderStatus.PENDING) {
+        await queryRunner.rollbackTransaction();
+        return;
+      }
+
+      userId = order.userId;
+      validateOrderTransition(order.status, OrderStatus.CANCELLED);
+      order.status = OrderStatus.CANCELLED;
+      await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // Only reached by the one winner — cron and BullMQ race is safe
+    await this.eventStoreService.createOutboxEvent({
+      type: KAFKA_TOPICS.ORDER_EXPIRED,
+      aggregateId: orderId,
+      payload: { orderId, userId: userId ?? "" },
     });
-
-    if (!order || order.status !== OrderStatus.PENDING) return;
-
-    validateOrderTransition(order.status, OrderStatus.CANCELLED);
-
-    order.status = OrderStatus.CANCELLED;
-    await this.orderRepo.save(order);
   }
 
   // ================= GENERIC =================
@@ -286,9 +363,9 @@ export class OrderService {
   async updateOrderState(orderId: string, nextStatus: OrderStatus) {
     const order = await this.findById(orderId);
 
-     // ✅ IDEMPOTENCY
+    // ✅ IDEMPOTENCY
     if (order.status === nextStatus) {
-      console.log("⚠️ Same state, skipping");
+      this.logger.warn(`Same state (${nextStatus}), skipping update`);
       return order;
     }
 

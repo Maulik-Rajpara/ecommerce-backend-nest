@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Module } from "@nestjs/common";
+import { TypeOrmModule } from "@nestjs/typeorm";
 
-import { AdminService } from './admin.service';
+import { AdminService } from "./admin.service";
 
-import { Order } from '../order/entities/order.entity';
-import { AdminController } from './admin.controller';
+import { Order } from "../order/entities/order.entity";
+import { AdminController } from "./admin.controller";
 
 @Module({
   imports: [TypeOrmModule.forFeature([Order])],

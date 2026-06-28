@@ -1,10 +1,24 @@
 version: '3.8'
 
+# ══════════════════════════════════════════════════════════════════
+# Infrastructure only — NestJS app runs directly on the host (EC2).
+#
+# Services here: postgres, pgadmin, redis, kafka, ngrok
+# NestJS app: pulled from git on EC2, started with `npm run start:prod`
+#
+# KEY CONCEPT: the app runs on the HOST, not inside Docker.
+#   Connect to Docker services via localhost from the app:
+#     DB_HOST=localhost, REDIS_HOST=localhost, KAFKA_BROKERS=localhost:29092
+#   Ngrok tunnels from inside Docker → host port 3000 via host-gateway.
+# ══════════════════════════════════════════════════════════════════
+
 services:
+
+  # ── POSTGRES ────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
-    container_name: postgres-db
-    restart: always
+    image: postgres:15-alpine
+    container_name: ecommerce-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,18 +27,117 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready probes whether postgres is accepting connections
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ecommerce"]
+      interval: 10s    # check every 10 seconds
+      timeout: 5s      # fail if no response in 5s
+      retries: 5       # mark healthy after 5 consecutive passes
+      start_period: 10s
+    networks:
+      - ecommerce-network
 
+  # ── PGADMIN (optional GUI) ───────────────────────────────────────
   pgadmin:
     image: dpage/pgadmin4
-    container_name: pgadmin
-    restart: always
+    container_name: ecommerce-pgadmin
+    restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy   # wait until postgres PASSES its healthcheck
+    networks:
+      - ecommerce-network
 
+  # ── REDIS ───────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      # redis-cli ping returns PONG when ready
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+  # ── KAFKA (KRaft mode — no Zookeeper needed) ────────────────────
+  # KRaft = Kafka's built-in raft consensus (production-ready since Kafka 3.3)
+  # This broker acts as BOTH broker AND controller — no separate Zookeeper process.
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: ecommerce-kafka
+    restart: unless-stopped
+    ports:
+      # TWO ports for TWO purposes:
+      #   9092  = internal Docker traffic  (app container → kafka container)
+      #   29092 = external port (your local machine connects here for tools/debug)
+      - "29092:29092"
+    environment:
+      # KRaft: broker also acts as the controller
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
+      # THREE listeners in KRaft mode:
+      #   PLAINTEXT      = internal app traffic    (kafka:9092)
+      #   PLAINTEXT_HOST = your Mac / tools        (localhost:29092)
+      #   CONTROLLER     = KRaft internal only     (kafka:9093, never exposed outside)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKAJS_NO_PARTITIONER_WARNING: "1"
+
+      # Required for KRaft: a stable unique cluster ID
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s   # Kafka takes ~20s to fully start
+    networks:
+      - ecommerce-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ecommerce-ngrok
+    restart: unless-stopped
+    environment:
+      NGROK_AUTHTOKEN: ${AUTH_TOKEN_NGROK}
+    # Tunnel to NestJS running directly on the EC2 host (not in Docker)
+    command: "http host.docker.internal:3000"
+    ports:
+      - "4040:4040"
+    extra_hosts:
+      # Maps host.docker.internal → EC2 host IP on Linux
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ecommerce-network
+# ── VOLUMES ─────────────────────────────────────────────────────
 volumes:
   pgdata:
+    # Named volume — data survives `docker compose down`
+    # To wipe: docker compose down -v
+
+# ── NETWORKS ────────────────────────────────────────────────────
+networks:
+  ecommerce-network:
+    driver: bridge
+    # All services on this network reach each other by service name
+    # This is Docker's built-in DNS — no /etc/hosts editing needed

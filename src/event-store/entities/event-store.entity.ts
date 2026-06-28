@@ -1,7 +1,16 @@
 // src/event-store/entities/event-store.entity.ts
 
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+} from "typeorm";
 
+export enum EventDirection {
+  INCOMING = "INCOMING",
+  OUTGOING = "OUTGOING",
+}
 export enum EventStatus {
   PENDING = "PENDING",
   PROCESSING = "PROCESSING",
@@ -42,4 +51,17 @@ export class EventStore {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ type: "timestamp", nullable: true })
+  nextRetryAt: Date;
+
+  @Column({ type: "timestamp", nullable: true })
+  processingStartedAt: Date;
+
+  @Column({
+    type: "enum",
+    enum: EventDirection,
+    default: EventDirection.INCOMING,
+  })
+  direction: EventDirection;
 }

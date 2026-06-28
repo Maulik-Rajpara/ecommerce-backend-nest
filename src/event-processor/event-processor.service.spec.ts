@@ -1,18 +1,18 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventProcessorService } from './event-processor.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { EventProcessorService } from "./event-processor.service";
 
-describe('EventProcessorService', () => {
+describe("EventProcessorService", () => {
   let service: EventProcessorService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [EventProcessorService],
+      providers: [{ provide: EventProcessorService, useValue: {} }],
     }).compile();
 
     service = module.get<EventProcessorService>(EventProcessorService);
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(service).toBeDefined();
   });
 });

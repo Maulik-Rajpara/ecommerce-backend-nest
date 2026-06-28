@@ -1,11 +1,11 @@
-import { Transform, Type } from 'class-transformer';
+import { Type } from "class-transformer";
 import {
   IsOptional,
   IsString,
   IsNumber,
   IsUUID,
   IsArray,
-} from 'class-validator';
+} from "class-validator";
 
 export class UpdateProductDto {
   @IsOptional()

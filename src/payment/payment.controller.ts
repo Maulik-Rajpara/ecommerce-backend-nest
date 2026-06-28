@@ -1,19 +1,23 @@
 import {
-  Controller,
-  Post,
-  Headers,
-  Req,
   BadRequestException,
+  Body,
+  Controller,
+  Logger,
+  Param,
+  Post,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import { PaymentService } from "./payment.service";
 import { OrderService } from "../order/order.service";
-import { AuthGuard } from "@nestjs/passport";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import type { AuthenticatedRequest } from "../common/interfaces/authenticated-request.interface";
 
 // 🔥 PROTECT ALL ROUTES
 @Controller("payments")
 export class PaymentController {
+  private readonly logger = new Logger(PaymentController.name);
+
   constructor(
     private paymentService: PaymentService,
     private orderService: OrderService,
@@ -22,9 +26,9 @@ export class PaymentController {
   // ================= CREATE PAYMENT =================
   @UseGuards(JwtAuthGuard)
   @Post("create")
-  async createPayment(@Req() req: any) {
+  async createPayment(@Req() req: AuthenticatedRequest) {
     try {
-      const userId = req.user.id;
+      const userId = req.user.userId;
 
       // 1️⃣ create or get existing order
       const orderRes = await this.orderService.createOrder(userId);
@@ -37,6 +41,9 @@ export class PaymentController {
           statusMessage: "Payment already initiated",
           data: {
             order,
+            payment: {
+              id: order.razorpayOrderId,
+            },
           },
         };
       }
@@ -53,12 +60,51 @@ export class PaymentController {
         },
       };
     } catch (err) {
-      console.error("❌ SERVICE ERROR:", err);
+      this.logger.error("Create payment failed", err instanceof Error ? err.stack : err);
       throw err;
     }
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post("verify")
+  async verifyPayment(@Body() body: any) {
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+        body;
 
+      const isValid = this.paymentService.verifyCheckoutSignature({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+
+      if (!isValid) {
+        throw new BadRequestException("Invalid signature");
+      }
+
+      // 🔥 SAVE DATA
+      await this.paymentService.savePaymentDetails({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+
+      return {
+        statusCode: 200,
+        statusMessage: "Signature verified and payment details saved",
+        data: null,
+      };
+    } catch (err) {
+      this.logger.error("Verify payment failed", err instanceof Error ? err.stack : err);
+      throw err;
+    }
+  }
+
+   @UseGuards(JwtAuthGuard)
+  @Post("retry/:orderId")
+  async retryPayment(@Param("orderId") orderId: string) {
+    return this.paymentService.retryFromFrontend(orderId);
+  }
 
   // ================= WEBHOOK =================
   // @Post("webhook")
@@ -72,7 +118,7 @@ export class PaymentController {
   //     const payload = Buffer.isBuffer(req.body)
   //       ? req.body.toString()
   //       : JSON.stringify(req.body);
-     
+
   //     console.log("🔍 Webhook payload:", req.body);
   //     const isValid = this.paymentService.verifySignature(
   //       payload,
@@ -81,8 +127,6 @@ export class PaymentController {
   //     if (!isValid && process.env.NODE_ENV === 'production') {
   //       throw new BadRequestException('Invalid signature');
   //     }
-
-     
 
   //     const event = JSON.parse(payload);
 

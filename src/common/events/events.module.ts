@@ -1,24 +1,21 @@
-import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
+import { Module } from "@nestjs/common";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 
-import { OrderModule } from 'src/order/order.module';
-import { UsersModule } from 'src/users/users.module';
-import { BullModule } from '@nestjs/bullmq';
-
-
+import { OrderModule } from "src/order/order.module";
+import { UsersModule } from "src/users/users.module";
+import { BullModule } from "@nestjs/bullmq";
+import { QUEUES } from "src/async/async.constants";
 
 @Module({
   imports: [
     BullModule.registerQueue({
-          name: 'email',
-        }),
-    EventEmitterModule.forRoot(), 
+      name: QUEUES.EMAIL,
+    }),
+    EventEmitterModule.forRoot(),
     OrderModule,
-    UsersModule// 🔥 important
+    UsersModule, // 🔥 important
   ],
-  providers: [
-  
-  ],
+  providers: [],
   exports: [EventEmitterModule],
 })
 export class EventsModule {}
