@@ -1,0 +1,31 @@
+# Dependencies — Docker installs these fresh inside the container
+node_modules
+
+# Compiled output — gets rebuilt during docker build
+dist
+
+# Git history — never needed inside a container
+.git
+.gitignore
+
+# Environment files — secrets never go into the image
+# They are passed in at runtime via docker-compose environment: section
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor config
+.vscode
+.idea
+
+# Test files — not needed at runtime
+**/*.spec.ts
+**/*.e2e-spec.ts
+test/

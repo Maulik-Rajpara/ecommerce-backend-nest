@@ -1,0 +1,12 @@
+// tsconfig.migrations.json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "target": "ES2023",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"]
+}
