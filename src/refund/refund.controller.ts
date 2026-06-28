@@ -6,6 +6,7 @@ import {
   Get,
   Headers,
   ParseUUIDPipe,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { RefundService } from "./refund.service";
@@ -31,8 +32,11 @@ export class RefundController {
 
   // ✅ GET ALL
   @Get()
-  getRefunds() {
-    return this.refundService.getRefunds();
+  getRefunds(
+    @Query("page") page = 1,
+    @Query("limit") limit = 20,
+  ) {
+    return this.refundService.getRefunds(page, limit);
   }
 
   // ✅ GET ONE

@@ -3,6 +3,13 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { NotifcationGateway } from "src/gateway/notification.gateway";
 import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
+import {
+  orderPaidEmail,
+  orderCancelledEmail,
+  refundSuccessEmail,
+  refundFailedEmail,
+  paymentFailedEmail,
+} from "src/email/email.templates";
 
 interface OrderNotificationPayload {
   orderId: string;
@@ -22,9 +29,7 @@ export class NotificationService {
   async sendOrderPaid(payload: OrderNotificationPayload) {
     this.gateway.notifyUser(payload.userId, {
       type: "ORDER_PAID",
-      payload: {
-        orderId: payload.orderId,
-      },
+      payload: { orderId: payload.orderId },
     });
 
     if (payload.email) {
@@ -32,8 +37,8 @@ export class NotificationService {
         JOBS.EMAIL_SEND,
         {
           email: payload.email,
-          subject: "Order Paid",
-          html: `<h3>Your order ${payload.orderId} is successful</h3>`,
+          subject: `Order Confirmed – #${payload.orderId.slice(0, 8).toUpperCase()}`,
+          html: orderPaidEmail(payload.orderId),
         },
         RETRY_OPTIONS.EMAIL,
       );
@@ -43,9 +48,7 @@ export class NotificationService {
   async sendOrderCancelled(payload: OrderNotificationPayload) {
     this.gateway.notifyUser(payload.userId, {
       type: "ORDER_CANCELLED",
-      payload: {
-        orderId: payload.orderId,
-      },
+      payload: { orderId: payload.orderId },
     });
 
     if (payload.email) {
@@ -53,8 +56,8 @@ export class NotificationService {
         JOBS.EMAIL_SEND,
         {
           email: payload.email,
-          subject: "Order Cancelled",
-          html: `<h3>Your order ${payload.orderId} has been cancelled</h3>`,
+          subject: `Order Cancelled – #${payload.orderId.slice(0, 8).toUpperCase()}`,
+          html: orderCancelledEmail(payload.orderId),
         },
         RETRY_OPTIONS.EMAIL,
       );
@@ -69,10 +72,8 @@ export class NotificationService {
     this.logger.log(`Sending refund success notification for orderId: ${data.orderId}`);
 
     this.gateway.notifyUser(data.userId, {
-      type: "ORDER_PAID",
-      payload: {
-        orderId: data.orderId,
-      },
+      type: "REFUND_SUCCESS",
+      payload: { orderId: data.orderId },
     });
 
     if (data.email) {
@@ -80,8 +81,8 @@ export class NotificationService {
         JOBS.EMAIL_SEND,
         {
           email: data.email,
-          subject: "Refund Successful",
-          html: `<h3>Your refund ${data.orderId} is successful</h3>`,
+          subject: `Refund Processed – #${data.orderId.slice(0, 8).toUpperCase()}`,
+          html: refundSuccessEmail(data.orderId),
         },
         RETRY_OPTIONS.EMAIL,
       );
@@ -94,8 +95,8 @@ export class NotificationService {
       JOBS.EMAIL_SEND,
       {
         email: data.email,
-        subject: "Refund Processing Delayed",
-        html: `<h3>Refund ${data.refundId} is delayed. Our system will keep retrying automatically.</h3>`,
+        subject: "Your Refund is Being Retried – ShopNest",
+        html: refundFailedEmail(data.refundId),
       },
       RETRY_OPTIONS.EMAIL,
     );
@@ -108,9 +109,7 @@ export class NotificationService {
   }) {
     this.gateway.notifyUser(data.userId, {
       type: "PAYMENT_FAILED",
-      payload: {
-        orderId: data.orderId,
-      },
+      payload: { orderId: data.orderId },
     });
 
     if (!data.email) return;
@@ -118,8 +117,8 @@ export class NotificationService {
       JOBS.EMAIL_SEND,
       {
         email: data.email,
-        subject: "Payment Failed - Order Cancelled",
-        html: `<h3>Your payment for order ${data.orderId} failed and the order was cancelled.</h3>`,
+        subject: `Payment Failed – Order #${data.orderId.slice(0, 8).toUpperCase()}`,
+        html: paymentFailedEmail(data.orderId),
       },
       RETRY_OPTIONS.EMAIL,
     );

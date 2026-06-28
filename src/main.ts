@@ -78,10 +78,16 @@ async function bootstrap() {
       client: {
         clientId: process.env.KAFKA_CLIENT_ID ?? "ecommerce",
         brokers: (process.env.KAFKA_BROKERS ?? "localhost:9092").split(","),
+        retry: {
+          initialRetryTime: 1000,
+          retries: 10,
+        },
       },
       consumer: {
         groupId:
           process.env.KAFKA_CONSUMER_GROUP ?? "ecommerce-consumer-client-v2",
+        sessionTimeout: 30000,
+        heartbeatInterval: 3000,
       },
     },
   });

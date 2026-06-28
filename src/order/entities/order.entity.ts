@@ -5,6 +5,7 @@ import {
   OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   Column,
   JoinColumn,
   Index,
@@ -80,4 +81,7 @@ export class Order {
   @Index()
   @Column({ type: "timestamp", nullable: true })
   expiresAt: Date;
+
+  @DeleteDateColumn({ nullable: true })
+  deletedAt: Date;
 }

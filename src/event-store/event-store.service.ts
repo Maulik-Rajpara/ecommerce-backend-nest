@@ -47,22 +47,32 @@ export class EventStoreService {
       });
     }
 
-  async getEvents(status?: string, limit: number = 20) {
+  async getEvents(status?: string, page = 1, limit = 20) {
     try {
+      const take = Math.min(Number(limit), 100);
+      const skip = (Number(page) - 1) * take;
+
       const query = this.repo.createQueryBuilder("event");
 
       if (status) {
         query.where("event.status = :status", { status });
       }
 
-      const events = await query
+      const [events, total] = await query
         .orderBy("event.createdAt", "DESC")
-        .limit(limit)
-        .getMany();
+        .skip(skip)
+        .take(take)
+        .getManyAndCount();
 
       return {
         statusCode: 200,
         data: events,
+        meta: {
+          total,
+          page: Number(page),
+          limit: take,
+          totalPages: Math.ceil(total / take),
+        },
       };
     } catch (error) {
       this.logger.error("Error fetching events", error instanceof Error ? error.stack : error);

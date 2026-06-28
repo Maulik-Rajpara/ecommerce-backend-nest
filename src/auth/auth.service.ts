@@ -15,6 +15,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { PinoLogger } from "nestjs-pino";
 import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
+import { resetPasswordEmail } from "src/email/email.templates";
 @Injectable()
 export class AuthService {
   constructor(
@@ -109,12 +110,8 @@ export class AuthService {
         JOBS.EMAIL_RESET_PASSWORD,
         {
           email,
-          subject: "Reset Your Password",
-          html: ` <h3>Password Reset</h3>
-        <p>Click below link to reset password:</p>
-        <a href="${resetLink}">${resetLink}</a>
-        <p>This link will expire in 15 minutes</p>
-      `,
+          subject: "Reset Your Password – ShopNest",
+          html: resetPasswordEmail(resetLink),
         },
         RETRY_OPTIONS.EMAIL,
       );

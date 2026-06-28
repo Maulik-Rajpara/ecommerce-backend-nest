@@ -10,6 +10,7 @@ export const QUEUES = {
 export const JOBS = {
   EMAIL_SEND: "send-email",
   EMAIL_RESET_PASSWORD: "send-reset-email",
+  EMAIL_WELCOME: "send-welcome-email",
   ORDER_EXPIRE: "order-expiry",
   PAYMENT_RETRY: "retry-payment",
   REFUND_RETRY: "refund-retry",

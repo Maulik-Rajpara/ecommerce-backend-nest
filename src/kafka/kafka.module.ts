@@ -21,11 +21,17 @@ import { KafkaService } from "./kafka.service";
               brokers: (
                 configService.get<string>("KAFKA_BROKERS") ?? "localhost:9092"
               ).split(","),
+              retry: {
+                initialRetryTime: 1000,
+                retries: 10,
+              },
             },
             consumer: {
               groupId:
                 configService.get<string>("KAFKA_CONSUMER_GROUP") ??
                 "ecommerce-consumer-client-v2",
+              sessionTimeout: 30000,
+              heartbeatInterval: 3000,
             },
           },
         }),

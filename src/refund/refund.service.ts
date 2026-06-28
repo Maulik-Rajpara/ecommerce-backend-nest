@@ -124,7 +124,24 @@ export class RefundService {
       }
 
       this.logger.log(`Processing refund for paymentId: ${payment.id}, amount: ${refundAmount}`);
+      //this.logger.log("razorpayPaymentId ",payment.razorpayPaymentId);
 
+      // const paymentInfo = await this.razorpay.payments.fetch(
+      //     payment.razorpayPaymentId,
+      //   );
+
+        // this.logger.log("PAYMENT INFO");
+        // this.logger.log(paymentInfo);
+        // console.log(this.razorpay);
+        // console.log(require("razorpay/package.json").version);
+
+        // console.log({
+        //     razorpayPaymentId: payment.razorpayPaymentId,
+        //     refundAmount,
+        //     refundAmountPaise: refundAmount * 100,
+        //     paymentAmount: payment.amount,
+        //     totalRefunded,
+        // });
       // 🔥 RAZORPAY REFUND CALL
       const razorpayRefund = await this.razorpay.payments.refund(
         payment.razorpayPaymentId,
@@ -133,6 +150,7 @@ export class RefundService {
         },
       );
 
+     // this.logger.log("razorpayRefund ",razorpayRefund);
       // 💾 SAVE REFUND
       const refund = this.refundRepo.create({
         payment,
@@ -173,24 +191,36 @@ export class RefundService {
         message: "Refund successful",
         data: refund,
       };
-    } catch (error) {
+    } catch (error:any) {
+      
       const message =
-        error instanceof Error ? error.message : "Unknown refund error";
+        error instanceof Error ? error.message : ("Unknown refund error");
       this.logger.error("Refund creation failed", error instanceof Error ? error.stack : error);
       throw new BadRequestException("Refund creation failed: " + message);
     }
   }
 
   // ✅ GET ALL REFUNDS
-  async getRefunds() {
-    const refunds = await this.refundRepo.find({
+  async getRefunds(page = 1, limit = 20) {
+    const take = Math.min(Number(limit), 100);
+    const skip = (Number(page) - 1) * take;
+
+    const [refunds, total] = await this.refundRepo.findAndCount({
       relations: ["payment"],
       order: { createdAt: "DESC" },
+      skip,
+      take,
     });
 
     return {
       statusCode: 200,
       data: refunds,
+      meta: {
+        total,
+        page: Number(page),
+        limit: take,
+        totalPages: Math.ceil(total / take),
+      },
     };
   }
 

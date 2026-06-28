@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { InjectRepository } from "@nestjs/typeorm";
 import { User } from "./entities/user.entity";
 import * as typeorm from "typeorm";
 import * as bcrypt from "bcrypt";
+import { Queue } from "bullmq";
 import { PinoLogger } from "nestjs-pino";
 import { ConfigService } from "@nestjs/config";
+import { JOBS, QUEUES, RETRY_OPTIONS } from "src/async/async.constants";
+import { welcomeEmail } from "src/email/email.templates";
 
 @Injectable()
 export class UsersService {
@@ -15,6 +19,7 @@ export class UsersService {
     private userRepo: typeorm.Repository<User>,
     private logger: PinoLogger,
     private configService: ConfigService,
+    @InjectQueue(QUEUES.EMAIL) private emailQueue: Queue,
   ) {}
 
   async create(createUserDto: CreateUserDto) {
@@ -40,6 +45,21 @@ export class UsersService {
     });
 
     await this.userRepo.save(user);
+
+    // Send welcome email (non-blocking — failure must not break registration)
+    this.emailQueue
+      .add(
+        JOBS.EMAIL_WELCOME,
+        {
+          email: user.email,
+          subject: `Welcome to ShopNest, ${user.firstName}! 🎉`,
+          html: welcomeEmail(user.firstName),
+        },
+        RETRY_OPTIONS.EMAIL,
+      )
+      .catch((err: unknown) =>
+        this.logger.error({ err }, "Failed to queue welcome email"),
+      );
 
     return {
       id: user.id,

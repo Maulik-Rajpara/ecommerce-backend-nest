@@ -35,6 +35,12 @@ export class CartService {
     );
   }
 
+  private cartExpiryDate(): Date {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d;
+  }
+
   // ================= GET OR CREATE CART =================
   async getOrCreateCart(userId: string) {
     let cart = await this.cartRepo.findOne({
@@ -45,8 +51,19 @@ export class CartService {
     if (!cart) {
       cart = this.cartRepo.create({
         user: { id: userId },
+        expiresAt: this.cartExpiryDate(),
       });
+      await this.cartRepo.save(cart);
+      return cart;
+    }
 
+    // Cart exists but has expired — clear items and renew expiry
+    if (cart.expiresAt && cart.expiresAt < new Date()) {
+      if (cart.items?.length) {
+        await this.cartItemRepo.remove(cart.items);
+        cart.items = [];
+      }
+      cart.expiresAt = this.cartExpiryDate();
       await this.cartRepo.save(cart);
     }
 

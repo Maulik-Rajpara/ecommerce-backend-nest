@@ -40,5 +40,5 @@ export const AppDataSource = new DataSource({
     WebhookEvent,
     EventStore,
   ],
-  migrations: ["src/migrations/*.ts"],
+  migrations: [__dirname + "/migrations/*.{ts,js}"],
 });
