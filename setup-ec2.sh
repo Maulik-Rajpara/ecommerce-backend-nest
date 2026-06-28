@@ -16,7 +16,7 @@ set -e  # exit immediately if any command fails
 #   8. Configure nginx to proxy port 80 → 3000
 # ══════════════════════════════════════════════════════════════════
 
-REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO.git"   # ← change this
+REPO_URL="https://github.com/Maulik-Rajpara/ecommerce-backend-nest.git"   # ← change this
 APP_DIR="/home/ubuntu/ecommerce-backend-nest"
 APP_USER="ubuntu"
 
