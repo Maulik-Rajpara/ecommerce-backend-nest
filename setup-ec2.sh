@@ -55,7 +55,7 @@ sudo apt-get install -y nginx
 echo "===> Cloning repository..."
 if [ -d "$APP_DIR" ]; then
   echo "Directory already exists — pulling latest code..."
-  git -C "$APP_DIR" pull origin main
+  git -C "$APP_DIR" pull origin maulik-dev
 else
   git clone "$REPO_URL" "$APP_DIR"
 fi
